@@ -1,0 +1,109 @@
+root = true
+
+[*]
+indent_style = space
+end_of_line = lf
+charset = utf-8
+trim_trailing_whitespace = true
+insert_final_newline = true
+
+# ── C# ────────────────────────────────────────────────────────────────────────
+[*.{cs,csx}]
+indent_size = 4
+
+# Prefer language keywords over BCR types (int not Int32)
+dotnet_style_predefined_type_for_locals_parameters_members = true:warning
+dotnet_style_predefined_type_for_member_access = true:warning
+
+# Always explicit accessibility modifiers
+dotnet_style_require_accessibility_modifiers = always:warning
+
+# Readonly fields
+dotnet_style_readonly_field = true:suggestion
+
+# Initializers
+dotnet_style_object_initializer = true:suggestion
+dotnet_style_collection_initializer = true:suggestion
+
+# Null checks
+dotnet_style_prefer_is_null_check_over_reference_equality_method = true:warning
+
+# No 'this.' unless required to disambiguate
+dotnet_style_qualification_for_field = false:warning
+dotnet_style_qualification_for_property = false:warning
+dotnet_style_qualification_for_method = false:warning
+dotnet_style_qualification_for_event = false:warning
+
+# var: explicit for builtins; var when type is apparent on the right-hand side
+csharp_style_var_for_built_in_types = false:warning
+csharp_style_var_when_type_is_apparent = true:suggestion
+csharp_style_var_elsewhere = false:suggestion
+
+# Always use braces
+csharp_prefer_braces = true:warning
+
+# Pattern matching
+csharp_style_pattern_matching_over_is_with_cast_check = true:suggestion
+csharp_style_pattern_matching_over_as_with_null_check = true:suggestion
+
+# Throw expressions
+csharp_style_throw_expression = true:suggestion
+
+# Expression-bodied members
+csharp_style_expression_bodied_methods = false:silent
+csharp_style_expression_bodied_constructors = false:silent
+csharp_style_expression_bodied_properties = true:suggestion
+
+# Null-conditional delegate calls
+csharp_style_conditional_delegate_call = true:suggestion
+
+# ── Naming conventions ────────────────────────────────────────────────────────
+dotnet_naming_style.pascal_case.capitalization = pascal_case
+
+dotnet_naming_style.camel_case.capitalization = camel_case
+
+dotnet_naming_style.private_field.required_prefix = _
+dotnet_naming_style.private_field.capitalization = camel_case
+
+dotnet_naming_style.interface_prefix.required_prefix = I
+dotnet_naming_style.interface_prefix.capitalization = pascal_case
+
+dotnet_naming_style.type_param_prefix.required_prefix = T
+dotnet_naming_style.type_param_prefix.capitalization = pascal_case
+
+dotnet_naming_symbols.interfaces.applicable_kinds = interface
+dotnet_naming_rule.interfaces.symbols = interfaces
+dotnet_naming_rule.interfaces.style = interface_prefix
+dotnet_naming_rule.interfaces.severity = warning
+
+dotnet_naming_symbols.type_params.applicable_kinds = type_parameter
+dotnet_naming_rule.type_params.symbols = type_params
+dotnet_naming_rule.type_params.style = type_param_prefix
+dotnet_naming_rule.type_params.severity = warning
+
+dotnet_naming_symbols.public_members.applicable_kinds = property,method,event,field,delegate
+dotnet_naming_symbols.public_members.applicable_accessibilities = public,internal,protected,protected_internal
+dotnet_naming_rule.public_members.symbols = public_members
+dotnet_naming_rule.public_members.style = pascal_case
+dotnet_naming_rule.public_members.severity = warning
+
+dotnet_naming_symbols.private_fields.applicable_kinds = field
+dotnet_naming_symbols.private_fields.applicable_accessibilities = private,protected_and_internal
+dotnet_naming_rule.private_fields.symbols = private_fields
+dotnet_naming_rule.private_fields.style = private_field
+dotnet_naming_rule.private_fields.severity = warning
+
+dotnet_naming_symbols.locals.applicable_kinds = local,parameter
+dotnet_naming_rule.locals.symbols = locals
+dotnet_naming_rule.locals.style = camel_case
+dotnet_naming_rule.locals.severity = suggestion
+
+# ── Data formats ─────────────────────────────────────────────────────────────
+[*.{json,yaml,yml,toml}]
+indent_size = 2
+
+[*.md]
+trim_trailing_whitespace = false
+
+[Makefile]
+indent_style = tab

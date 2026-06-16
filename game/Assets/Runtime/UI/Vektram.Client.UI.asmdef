@@ -1,0 +1,16 @@
+{
+    "name": "Vektram.Client.UI",
+    "rootNamespace": "",
+    "references": [
+        "GUID:bdd946e74201a914b9332f73fc6691ef"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

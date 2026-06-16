@@ -1,0 +1,63 @@
+# ── .NET / C# ─────────────────────────────────────────────────────────────────
+[Bb]in/
+[Oo]bj/
+.vs/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+TestResults/
+*.nupkg
+*.snupkg
+project.lock.json
+project.fragment.lock.json
+artifacts/
+publish/
+
+# ── Unity ─────────────────────────────────────────────────────────────────────
+[Ll]ibrary/
+[Tt]emp/
+[Oo]bj/
+[Bb]uild/
+[Bb]uilds/
+[Ll]ogs/
+[Uu]ser[Ss]ettings/
+MemoryCaptures/
+Recordings/
+ExportedObj/
+sysinfo.txt
+crashlytics-build.properties
+*.pidb
+*.userprefs
+*.unityproj
+*.booproj
+# Unity auto-generates these inside /game — do not commit them
+game/*.csproj
+game/*.sln
+game/*.unityproj
+
+# ── JetBrains / VS Code / VS ──────────────────────────────────────────────────
+.idea/
+*.DotSettings.user
+.vscode/settings.json
+.vscode/tasks.json
+.vscode/launch.json
+.vscode/ipch/
+
+# ── Protobuf generated output ─────────────────────────────────────────────────
+proto/gen/
+
+# ── Node / tooling ────────────────────────────────────────────────────────────
+node_modules/
+npm-debug.log*
+yarn-error.log
+
+# ── OS ────────────────────────────────────────────────────────────────────────
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+desktop.ini
