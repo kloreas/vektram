@@ -20,12 +20,46 @@ and the Unity client. This is the single source of truth for all combat rules.
 dotnet test sim/Sim.sln
 ```
 
+## Simulation Conventions (see ADR-0002)
+
+| Convention | Value |
+|------------|-------|
+| Coordinate system | +X right, +Y up |
+| Distance / time | metres / seconds |
+| Angles | degrees, CCW from +X (0° = right, 90° = up) |
+| Gravity | 9.8 m/s², applied as −Y acceleration |
+| Wind | m/s² constant horizontal acceleration (+X = rightward) |
+| Fixed timestep | 1/60 s (60 Hz) |
+| Integration | Velocity Verlet (exact for constant acceleration) |
+| Impact precision | Linear interpolation of terrain-surface crossing (sub-step) |
+
+## Key Types
+
+| Type | Kind | Purpose |
+|------|------|---------|
+| `Vec2D` | `readonly record struct` | Double-precision 2D vector with value equality |
+| `SimConstants` | `static class` | All canonical numeric constants |
+| `FireCommand` | `readonly record struct` | Shot inputs: origin, angle, speed, seed |
+| `WorldEnvironment` | `readonly record struct` | Gravity + wind for a round |
+| `TrajectoryPoint` | `readonly record struct` | Position, velocity, time at one tick |
+| `ShotResult` | `readonly struct` | Trajectory array + interpolated impact |
+| `IProjectileSimulator` | interface | Contract for server authority and client preview |
+| `ProjectileSimulator` | class | Concrete Velocity Verlet implementation |
+| `ITerrainQuery` | interface | Read-only heightfield: GetHeight(x) — no overhangs/caves/walls |
+| `FlatTerrain` | class | Constant-height terrain; `FlatTerrain.Ground` is the y = 0 baseline |
+
 ## Project Structure
 
 ```
 sim/
-  Sim/          netstandard2.1 class library — the sim core
-  Sim.Tests/    xUnit test project (net8.0)
+  Sim/
+    Core/         Vec2D, SimConstants
+    Projectile/   FireCommand, WorldEnvironment, TrajectoryPoint,
+                  ShotResult, IProjectileSimulator, ProjectileSimulator
+    Terrain/      ITerrainQuery, FlatTerrain
+  Sim.Tests/
+    Projectile/   ProjectileSimulatorTests (10 tests)
+    Terrain/      ProjectileTerrainTests (8 cases)
   Sim.sln
 ```
 

@@ -94,3 +94,4 @@ Unity projects are opened via Unity Hub — do not run `dotnet build` on `/game`
 | ID | Title |
 |----|-------|
 | [ADR-0001](docs/adr/ADR-0001-server-authoritative-shared-sim.md) | Server-Authoritative Model & Shared Sim Core |
+| [ADR-0002](docs/adr/ADR-0002-numeric-representation-and-sim-conventions.md) | Numeric Representation & Simulation Conventions |
