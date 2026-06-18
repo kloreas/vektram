@@ -52,6 +52,9 @@ node_modules/
 npm-debug.log*
 yarn-error.log
 
+# ── Claude Code (machine-local, never shared) ────────────────────────────────
+.claude/settings.local.json
+
 # ── OS ────────────────────────────────────────────────────────────────────────
 .DS_Store
 .DS_Store?
