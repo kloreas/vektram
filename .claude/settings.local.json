@@ -1,8 +1,0 @@
-{
-  "permissions": {
-    "allow": [
-      "PowerShell(dotnet new sln *)",
-      "PowerShell(dotnet test *)"
-    ]
-  }
-}
