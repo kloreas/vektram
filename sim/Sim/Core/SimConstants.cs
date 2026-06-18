@@ -22,4 +22,10 @@ public static class SimConstants
 
     /// <summary>Multiply degrees by this to convert to radians.</summary>
     public const double DegToRad        = Math.PI / 180.0;
+
+    /// <summary>
+    /// Hard cap on turns per match. Guards against infinite loops on degenerate agent behaviour.
+    /// 200 turns = 100 turns each for two players.
+    /// </summary>
+    public const int MaxTurnsPerMatch   = 200;
 }

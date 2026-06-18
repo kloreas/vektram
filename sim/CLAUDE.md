@@ -35,10 +35,12 @@ dotnet test sim/Sim.sln
 
 ## Key Types
 
+### Core / Projectile / Terrain
+
 | Type | Kind | Purpose |
 |------|------|---------|
 | `Vec2D` | `readonly record struct` | Double-precision 2D vector with value equality |
-| `SimConstants` | `static class` | All canonical numeric constants |
+| `SimConstants` | `static class` | All canonical numeric constants (incl. `MaxTurnsPerMatch = 200`) |
 | `FireCommand` | `readonly record struct` | Shot inputs: origin, angle, speed, seed |
 | `WorldEnvironment` | `readonly record struct` | Gravity + wind for a round |
 | `TrajectoryPoint` | `readonly record struct` | Position, velocity, time at one tick |
@@ -47,6 +49,24 @@ dotnet test sim/Sim.sln
 | `ProjectileSimulator` | class | Concrete Velocity Verlet implementation |
 | `ITerrainQuery` | interface | Read-only heightfield: GetHeight(x) — no overhangs/caves/walls |
 | `FlatTerrain` | class | Constant-height terrain; `FlatTerrain.Ground` is the y = 0 baseline |
+
+### Match
+
+| Type | Kind | Purpose |
+|------|------|---------|
+| `CombatantStats` | `readonly record struct` | MaxHp, DamageModifier (attacker multiplier), Defense (flat reduction) |
+| `Combatant` | `readonly record struct` | Position (on terrain surface), Hp, Stats; `IsDefeated` when Hp ≤ 0 |
+| `Weapon` | `readonly record struct` | ProjectileSpeed, BaseDamage, BlastRadius — data only |
+| `FireAction` | `readonly record struct` | AngleDegrees, Speed (separate from weapon for charge mechanics), Weapon |
+| `MatchState` | `readonly record struct` | Self, Opponent, Terrain, Environment, TurnNumber — agent's turn view |
+| `CombatantTurnResult` | `readonly record struct` | DamageReceived, HpBefore, HpAfter for one combatant in one turn |
+| `TurnEvent` | `readonly record struct` | Full turn record: actor index, action, impact point, both combatants' results |
+| `MatchOutcome` | `enum` | Player0Wins, Player1Wins, Draw (double-KO), MaxTurnsReached |
+| `MatchResult` | `readonly struct` | Outcome, WinnerIndex (nullable), TurnCount, Log |
+| `IAgent` | interface | `ChooseAction(MatchState)` — implemented by human adapters and AI bots |
+| `IMatchSimulator` | interface | `Run(...)` — deterministic, seeded |
+| `DamageCalculator` | `static class` | Pure blast damage: linear falloff × DamageModifier − Defense, clamped ≥ 0 |
+| `MatchSimulator` | class | Alternating-turn engine; blast applied to **both** combatants every turn (self-damage is real) |
 
 ## Project Structure
 
@@ -57,9 +77,12 @@ sim/
     Projectile/   FireCommand, WorldEnvironment, TrajectoryPoint,
                   ShotResult, IProjectileSimulator, ProjectileSimulator
     Terrain/      ITerrainQuery, FlatTerrain
+    Match/        All Match types, DamageCalculator, MatchSimulator
   Sim.Tests/
     Projectile/   ProjectileSimulatorTests (10 tests)
-    Terrain/      ProjectileTerrainTests (8 cases)
+    Terrain/      ProjectileTerrainTests (9 cases, 3 via Theory)
+    Match/        DamageCalculatorTests (7), MatchSimulatorTests (11),
+                  ScriptedAgent (test-only IAgent helper)
   Sim.sln
 ```
 
