@@ -3,18 +3,18 @@ namespace Sim.Match;
 /// <summary>How a match ended.</summary>
 public enum MatchOutcome
 {
-    /// <summary>Combatant 0 survived; combatant 1 was defeated.</summary>
-    Player0Wins,
+    /// <summary>Team 0 is the last team with at least one living combatant.</summary>
+    Team0Wins,
 
-    /// <summary>Combatant 1 survived; combatant 0 was defeated.</summary>
-    Player1Wins,
+    /// <summary>Team 1 is the last team with at least one living combatant.</summary>
+    Team1Wins,
 
     /// <summary>
-    /// Both combatants were defeated in the same turn (e.g. shooter caught in their own blast).
-    /// Resolved deterministically — no tiebreaker needed since neither side survives.
+    /// All remaining teams were eliminated in the same turn (e.g. the shooter's blast
+    /// knocked out the last enemy while simultaneously defeating themselves or an ally).
     /// </summary>
     Draw,
 
-    /// <summary>Neither combatant was defeated within the <see cref="Sim.Core.SimConstants.MaxTurnsPerMatch"/> cap.</summary>
+    /// <summary>No team was fully eliminated within the <see cref="Sim.Core.SimConstants.MaxTurnsPerMatch"/> cap.</summary>
     MaxTurnsReached
 }

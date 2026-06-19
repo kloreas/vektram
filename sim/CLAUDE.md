@@ -56,17 +56,21 @@ dotnet test sim/Sim.sln
 |------|------|---------|
 | `CombatantStats` | `readonly record struct` | MaxHp, DamageModifier (attacker multiplier), Defense (flat reduction) |
 | `Combatant` | `readonly record struct` | Position (on terrain surface), Hp, Stats; `IsDefeated` when Hp ≤ 0 |
+| `CombatantEntry` | `readonly record struct` | Roster slot: Combatant + TeamId + IAgent |
 | `Weapon` | `readonly record struct` | ProjectileSpeed, BaseDamage, BlastRadius — data only |
 | `FireAction` | `readonly record struct` | AngleDegrees, Speed (separate from weapon for charge mechanics), Weapon |
-| `MatchState` | `readonly record struct` | Self, Opponent, Terrain, Environment, TurnNumber — agent's turn view |
+| `MatchOptions` | `readonly record struct` | FriendlyFire (ally blast damage on/off), SelfDamage (self blast damage on/off); both default true |
+| `MatchState` | `readonly record struct` | Self, Allies (living teammates), Enemies (living opponents), Terrain, Environment, TurnNumber |
 | `CombatantTurnResult` | `readonly record struct` | DamageReceived, HpBefore, HpAfter for one combatant in one turn |
-| `TurnEvent` | `readonly record struct` | Full turn record: actor index, action, impact point, both combatants' results |
-| `MatchOutcome` | `enum` | Player0Wins, Player1Wins, Draw (double-KO), MaxTurnsReached |
-| `MatchResult` | `readonly struct` | Outcome, WinnerIndex (nullable), TurnCount, Log |
+| `TurnEvent` | `readonly record struct` | Full turn record: actor index, action, impact point, CombatantResults list (indexed by roster position); custom Equals for element-wise list comparison |
+| `MatchOutcome` | `enum` | Team0Wins, Team1Wins, Draw (all teams KO in same turn), MaxTurnsReached |
+| `MatchResult` | `readonly struct` | Outcome, WinningTeamId (nullable int), TurnCount, Log |
 | `IAgent` | interface | `ChooseAction(MatchState)` — implemented by human adapters and AI bots |
-| `IMatchSimulator` | interface | `Run(...)` — deterministic, seeded |
+| `ITurnOrderPolicy` | interface | `NextActor(livingIndices)` — seam for swappable turn scheduling |
+| `RoundRobinTurnOrderPolicy` | `sealed class` | Default policy: teams alternate, living members cycle within each team in roster order |
+| `IMatchSimulator` | interface | `Run(IReadOnlyList<CombatantEntry>, MatchOptions, ...)` — deterministic, seeded |
 | `DamageCalculator` | `static class` | Pure blast damage: linear falloff × DamageModifier − Defense, clamped ≥ 0 |
-| `MatchSimulator` | class | Alternating-turn engine; blast applied to **both** combatants every turn (self-damage is real) |
+| `MatchSimulator` | class | Team-based turn engine; uses `RoundRobinTurnOrderPolicy`; win condition: last team with living members |
 
 ## Project Structure
 
@@ -77,11 +81,16 @@ sim/
     Projectile/   FireCommand, WorldEnvironment, TrajectoryPoint,
                   ShotResult, IProjectileSimulator, ProjectileSimulator
     Terrain/      ITerrainQuery, FlatTerrain
-    Match/        All Match types, DamageCalculator, MatchSimulator
+    Match/        CombatantStats, Combatant, CombatantEntry, Weapon, FireAction,
+                  MatchOptions, MatchState, CombatantTurnResult, TurnEvent,
+                  MatchOutcome, MatchResult,
+                  IAgent, ITurnOrderPolicy, RoundRobinTurnOrderPolicy,
+                  IMatchSimulator, DamageCalculator, MatchSimulator
   Sim.Tests/
     Projectile/   ProjectileSimulatorTests (10 tests)
     Terrain/      ProjectileTerrainTests (9 cases, 3 via Theory)
-    Match/        DamageCalculatorTests (7), MatchSimulatorTests (11),
+    Match/        DamageCalculatorTests (7), MatchSimulatorTests (11 — 1v1 regression),
+                  TeamMatchSimulatorTests (11 — team-specific),
                   ScriptedAgent (test-only IAgent helper)
   Sim.sln
 ```

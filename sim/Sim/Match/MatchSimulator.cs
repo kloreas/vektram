@@ -6,9 +6,11 @@ using Sim.Terrain;
 namespace Sim.Match;
 
 /// <summary>
-/// Runs a 1v1 turn-based match to completion.
-/// Combatant 0 acts on even turns; combatant 1 acts on odd turns.
-/// Every shot's blast is applied to BOTH combatants — self-damage from a poorly aimed shot is intentional.
+/// Runs a team-based turn-based match to completion.
+/// Turn order is governed by <see cref="RoundRobinTurnOrderPolicy"/> (fair team interleaving).
+/// Blast damage respects <see cref="MatchOptions.FriendlyFire"/> and <see cref="MatchOptions.SelfDamage"/>.
+/// A match ends when exactly one team has surviving combatants, or all teams are eliminated
+/// simultaneously (Draw), or the turn cap is reached.
 /// </summary>
 public sealed class MatchSimulator : IMatchSimulator
 {
@@ -19,61 +21,110 @@ public sealed class MatchSimulator : IMatchSimulator
 
     /// <inheritdoc/>
     public MatchResult Run(
-        Combatant combatant0,
-        Combatant combatant1,
-        IAgent agent0,
-        IAgent agent1,
+        IReadOnlyList<CombatantEntry> entries,
+        MatchOptions options,
         ITerrainQuery terrain,
         WorldEnvironment environment,
         uint seed)
     {
-        var combatants = new[] { combatant0, combatant1 };
-        var agents     = new[] { agent0, agent1 };
-        var log        = new List<TurnEvent>(SimConstants.MaxTurnsPerMatch);
+        int n = entries.Count;
+
+        var combatants = new Combatant[n];
+        var teamIds    = new int[n];
+        var agents     = new IAgent[n];
+
+        for (int i = 0; i < n; i++)
+        {
+            combatants[i] = entries[i].Combatant;
+            teamIds[i]    = entries[i].TeamId;
+            agents[i]     = entries[i].Agent;
+        }
+
+        var living = new List<int>(n);
+        for (int i = 0; i < n; i++) living.Add(i);
+
+        // Agility/delay-based ordering is the planned future policy (see ADR-0004).
+        ITurnOrderPolicy policy = new RoundRobinTurnOrderPolicy(teamIds);
+        var log = new List<TurnEvent>(SimConstants.MaxTurnsPerMatch);
 
         for (int turn = 0; turn < SimConstants.MaxTurnsPerMatch; turn++)
         {
-            int actorIndex = turn % 2;
+            int actorIdx  = policy.NextActor(living);
+            int actorTeam = teamIds[actorIdx];
 
-            var state  = new MatchState(combatants[actorIndex], combatants[1 - actorIndex], terrain, environment, turn);
-            var action = agents[actorIndex].ChooseAction(state);
+            var allies  = BuildTeammates(actorIdx, actorTeam, teamIds, combatants, living);
+            var enemies = BuildEnemies(actorTeam, teamIds, combatants, living);
+            var state   = new MatchState(combatants[actorIdx], allies, enemies, terrain, environment, turn);
+            var action  = agents[actorIdx].ChooseAction(state);
 
-            var command = new FireCommand(combatants[actorIndex].Position, action.AngleDegrees, action.Speed, seed);
+            var command = new FireCommand(combatants[actorIdx].Position, action.AngleDegrees, action.Speed, seed);
             var shot    = _projectileSim.Simulate(command, environment, terrain);
 
-            double hp0Before = combatants[0].Hp;
-            double hp1Before = combatants[1].Hp;
+            var actorStats = combatants[actorIdx].Stats;
+            var results    = new CombatantTurnResult[n];
 
-            double damage0 = DamageCalculator.Compute(
-                shot.ImpactPoint, combatants[0].Position,
-                action.Weapon, combatants[actorIndex].Stats, combatants[0].Stats);
+            for (int i = 0; i < n; i++)
+            {
+                bool isActor = i == actorIdx;
+                bool isAlly  = teamIds[i] == actorTeam;
 
-            double damage1 = DamageCalculator.Compute(
-                shot.ImpactPoint, combatants[1].Position,
-                action.Weapon, combatants[actorIndex].Stats, combatants[1].Stats);
+                // Self and ally checks are independent levers (see MatchOptions).
+                bool apply = isActor
+                    ? options.SelfDamage
+                    : (!isAlly || options.FriendlyFire);
 
-            combatants[0] = combatants[0] with { Hp = hp0Before - damage0 };
-            combatants[1] = combatants[1] with { Hp = hp1Before - damage1 };
+                double hpBefore = combatants[i].Hp;
+                double damage   = apply
+                    ? DamageCalculator.Compute(shot.ImpactPoint, combatants[i].Position, action.Weapon, actorStats, combatants[i].Stats)
+                    : 0.0;
 
-            log.Add(new TurnEvent(
-                turn,
-                actorIndex,
-                action,
-                shot.ImpactPoint,
-                new CombatantTurnResult(damage0, hp0Before, combatants[0].Hp),
-                new CombatantTurnResult(damage1, hp1Before, combatants[1].Hp)));
+                combatants[i] = combatants[i] with { Hp = hpBefore - damage };
+                results[i]    = new CombatantTurnResult(damage, hpBefore, combatants[i].Hp);
+            }
 
-            bool c0Defeated = combatants[0].IsDefeated;
-            bool c1Defeated = combatants[1].IsDefeated;
+            log.Add(new TurnEvent(turn, actorIdx, action, shot.ImpactPoint, results));
 
-            if (c0Defeated && c1Defeated)
+            // Remove newly defeated combatants from the turn-order pool.
+            for (int k = living.Count - 1; k >= 0; k--)
+                if (combatants[living[k]].IsDefeated)
+                    living.RemoveAt(k);
+
+            // Determine which teams still have living members.
+            var aliveTeams = new HashSet<int>();
+            foreach (int i in living) aliveTeams.Add(teamIds[i]);
+
+            if (aliveTeams.Count == 0)
                 return new MatchResult(MatchOutcome.Draw, null, turn + 1, log);
-            if (c0Defeated)
-                return new MatchResult(MatchOutcome.Player1Wins, 1, turn + 1, log);
-            if (c1Defeated)
-                return new MatchResult(MatchOutcome.Player0Wins, 0, turn + 1, log);
+
+            if (aliveTeams.Count == 1)
+            {
+                int winnerTeam = -1;
+                foreach (int t in aliveTeams) winnerTeam = t;
+                var outcome = winnerTeam == 0 ? MatchOutcome.Team0Wins : MatchOutcome.Team1Wins;
+                return new MatchResult(outcome, winnerTeam, turn + 1, log);
+            }
         }
 
         return new MatchResult(MatchOutcome.MaxTurnsReached, null, SimConstants.MaxTurnsPerMatch, log);
+    }
+
+    private static IReadOnlyList<Combatant> BuildTeammates(
+        int actorIdx, int actorTeam, int[] teamIds, Combatant[] combatants, List<int> living)
+    {
+        var result = new List<Combatant>();
+        foreach (int i in living)
+            if (i != actorIdx && teamIds[i] == actorTeam)
+                result.Add(combatants[i]);
+        return result;
+    }
+
+    private static IReadOnlyList<Combatant> BuildEnemies(
+        int actorTeam, int[] teamIds, Combatant[] combatants, List<int> living)
+    {
+        var result = new List<Combatant>();
+        foreach (int i in living)
+            if (teamIds[i] != actorTeam)
+                result.Add(combatants[i]);
+        return result;
     }
 }

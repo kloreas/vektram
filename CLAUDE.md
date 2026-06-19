@@ -96,3 +96,4 @@ Unity projects are opened via Unity Hub — do not run `dotnet build` on `/game`
 | [ADR-0001](docs/adr/ADR-0001-server-authoritative-shared-sim.md) | Server-Authoritative Model & Shared Sim Core |
 | [ADR-0002](docs/adr/ADR-0002-numeric-representation-and-sim-conventions.md) | Numeric Representation & Simulation Conventions |
 | [ADR-0003](docs/adr/ADR-0003-client-trajectory-preview-not-authoritative-playback.md) | Client Sim = Aiming Preview Only; Server Sends Authoritative Trajectory |
+| [ADR-0004](docs/adr/ADR-0004-team-based-match-model.md) | Team-Based Match Model — N-vs-N, Swappable Turn Order, Configurable Friendly Fire |

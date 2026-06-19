@@ -9,10 +9,10 @@ public readonly struct MatchResult
     public MatchOutcome Outcome { get; }
 
     /// <summary>
-    /// Index of the winner (0 or 1), or <see langword="null"/> for
+    /// Team id of the winning team, or <see langword="null"/> for
     /// <see cref="MatchOutcome.Draw"/> and <see cref="MatchOutcome.MaxTurnsReached"/>.
     /// </summary>
-    public int? WinnerIndex { get; }
+    public int? WinningTeamId { get; }
 
     /// <summary>Total number of turns played (equals <see cref="Log"/> length).</summary>
     public int TurnCount { get; }
@@ -21,11 +21,11 @@ public readonly struct MatchResult
     public IReadOnlyList<TurnEvent> Log { get; }
 
     /// <inheritdoc cref="MatchResult"/>
-    public MatchResult(MatchOutcome outcome, int? winnerIndex, int turnCount, IReadOnlyList<TurnEvent> log)
+    public MatchResult(MatchOutcome outcome, int? winningTeamId, int turnCount, IReadOnlyList<TurnEvent> log)
     {
-        Outcome     = outcome;
-        WinnerIndex = winnerIndex;
-        TurnCount   = turnCount;
-        Log         = log;
+        Outcome       = outcome;
+        WinningTeamId = winningTeamId;
+        TurnCount     = turnCount;
+        Log           = log;
     }
 }

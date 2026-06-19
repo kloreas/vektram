@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using Sim.Core;
 using Sim.Match;
 using Sim.Projectile;
@@ -6,6 +7,10 @@ using Xunit;
 
 namespace Sim.Tests.Match;
 
+/// <summary>
+/// 1v1 regression suite — one combatant per team, both default MatchOptions.
+/// Verifies that the generalized team engine is a clean superset of the original duel behaviour.
+/// </summary>
 public class MatchSimulatorTests
 {
     // ── Infrastructure ────────────────────────────────────────────────────────
@@ -21,26 +26,14 @@ public class MatchSimulatorTests
 
     // ── Weapons ───────────────────────────────────────────────────────────────
 
-    // Huge blast: always hits both combatants wherever the shot lands.
-    private static readonly Weapon BigBlastWeapon = new(ShotSpeed, 200.0, 500.0);
-
-    // Zero damage: baseDamage=0 ensures no HP change regardless of distance/radius.
-    private static readonly Weapon NoDamageWeapon = new(ShotSpeed, 0.0, 0.0);
-
-    // Small weapon that damages only combatants within 2 m — used for targeted tests.
+    private static readonly Weapon BigBlastWeapon  = new(ShotSpeed, 200.0, 500.0);
+    private static readonly Weapon NoDamageWeapon  = new(ShotSpeed, 0.0, 0.0);
     private static readonly Weapon SmallBlastWeapon = new(ShotSpeed, 50.0, 2.0);
 
     // ── Standard actions ─────────────────────────────────────────────────────
 
-    // Fires 45° right at full speed — lands ~255 m away.
-    // With BigBlastWeapon the 500 m radius covers any combatant on the map.
-    private static readonly FireAction KillAction = new(45.0, ShotSpeed, BigBlastWeapon);
-
-    // NoDamageWeapon: shot deals zero damage regardless of placement.
-    private static readonly FireAction NoopAction = new(90.0, 0.5, NoDamageWeapon);
-
-    // 90°, low speed — projectile goes straight up and lands back at the shooter's feet.
-    // Used for self-damage and area-blast tests together with SmallBlastWeapon.
+    private static readonly FireAction KillAction      = new(45.0, ShotSpeed, BigBlastWeapon);
+    private static readonly FireAction NoopAction      = new(90.0, 0.5, NoDamageWeapon);
     private static readonly FireAction StraightUpSmall = new(90.0, 0.5, SmallBlastWeapon);
 
     // ── Helpers ───────────────────────────────────────────────────────────────
@@ -48,63 +41,62 @@ public class MatchSimulatorTests
     private static Combatant MakeCombatant(double x, double hp = StartHp)
         => new(new Vec2D(x, 0.0), hp, CombatantStats.Default);
 
+    private static IReadOnlyList<CombatantEntry> Duel(
+        Combatant c0, IAgent a0, Combatant c1, IAgent a1)
+        => new[] { new CombatantEntry(c0, 0, a0), new CombatantEntry(c1, 1, a1) };
+
     // ── Tests ─────────────────────────────────────────────────────────────────
 
     [Fact]
-    public void FullMatch_TwoScriptedAgents_RunsToCompletion()
+    public void FullMatch_OnePerTeam_RunsToCompletion()
     {
-        // c0 fires KillAction (huge blast, ~255 m landing, 500 m radius).
-        // At 50 m apart, c1 is well within the 500 m radius → lethal.
-        // c0 is ~255 m from its own impact → also takes damage but survives (< StartHp).
-        var c0    = MakeCombatant(0.0);
-        var c1    = MakeCombatant(50.0);
-        var kill  = new ScriptedAgent(KillAction);
-        var noop  = new ScriptedAgent(NoopAction);
+        var c0 = MakeCombatant(0.0);
+        var c1 = MakeCombatant(50.0);
 
-        var result = Sim.Run(c0, c1, kill, noop, FlatGround, NoWind, TestSeed);
+        var result = Sim.Run(Duel(c0, new ScriptedAgent(KillAction), c1, new ScriptedAgent(NoopAction)),
+            MatchOptions.Default, FlatGround, NoWind, TestSeed);
 
-        Assert.Equal(MatchOutcome.Player0Wins, result.Outcome);
-        Assert.Equal(0, result.WinnerIndex);
+        Assert.Equal(MatchOutcome.Team0Wins, result.Outcome);
+        Assert.Equal(0, result.WinningTeamId);
         Assert.True(result.TurnCount > 0);
         Assert.NotEmpty(result.Log);
     }
 
     [Fact]
-    public void DefeatedCombatant_EndsMatch_BeforeMaxTurns()
+    public void DefeatedTeam_EndsMatch_BeforeMaxTurns()
     {
-        var c0   = MakeCombatant(0.0);
-        var c1   = MakeCombatant(50.0);
-        var kill = new ScriptedAgent(KillAction);
-        var noop = new ScriptedAgent(NoopAction);
+        var c0 = MakeCombatant(0.0);
+        var c1 = MakeCombatant(50.0);
 
-        var result = Sim.Run(c0, c1, kill, noop, FlatGround, NoWind, TestSeed);
+        var result = Sim.Run(Duel(c0, new ScriptedAgent(KillAction), c1, new ScriptedAgent(NoopAction)),
+            MatchOptions.Default, FlatGround, NoWind, TestSeed);
 
         Assert.NotEqual(MatchOutcome.MaxTurnsReached, result.Outcome);
         Assert.True(result.TurnCount < SimConstants.MaxTurnsPerMatch);
     }
 
     [Fact]
-    public void CorrectWinnerIndex_Named()
+    public void CorrectWinningTeam_Named()
     {
-        var c0   = MakeCombatant(0.0);
-        var c1   = MakeCombatant(50.0);
-        var kill = new ScriptedAgent(KillAction);
-        var noop = new ScriptedAgent(NoopAction);
+        var c0 = MakeCombatant(0.0);
+        var c1 = MakeCombatant(50.0);
 
-        var result = Sim.Run(c0, c1, kill, noop, FlatGround, NoWind, TestSeed);
+        var result = Sim.Run(Duel(c0, new ScriptedAgent(KillAction), c1, new ScriptedAgent(NoopAction)),
+            MatchOptions.Default, FlatGround, NoWind, TestSeed);
 
-        Assert.Equal(MatchOutcome.Player0Wins, result.Outcome);
-        Assert.Equal(0, result.WinnerIndex);
+        Assert.Equal(MatchOutcome.Team0Wins, result.Outcome);
+        Assert.Equal(0, result.WinningTeamId);
     }
 
     [Fact]
-    public void TurnsAlternate_EvenTurnsCombatant0_OddTurnsCombatant1()
+    public void TurnsAlternate_EvenTurnsTeam0_OddTurnsTeam1()
     {
         var c0   = MakeCombatant(0.0);
         var c1   = MakeCombatant(50.0);
         var noop = new ScriptedAgent(NoopAction);
 
-        var result = Sim.Run(c0, c1, noop, noop, FlatGround, NoWind, TestSeed);
+        var result = Sim.Run(Duel(c0, noop, c1, noop),
+            MatchOptions.Default, FlatGround, NoWind, TestSeed);
 
         Assert.Equal(SimConstants.MaxTurnsPerMatch, result.Log.Count);
         for (int i = 0; i < result.Log.Count; i++)
@@ -118,10 +110,11 @@ public class MatchSimulatorTests
         var c1   = MakeCombatant(50.0);
         var noop = new ScriptedAgent(NoopAction);
 
-        var result = Sim.Run(c0, c1, noop, noop, FlatGround, NoWind, TestSeed);
+        var result = Sim.Run(Duel(c0, noop, c1, noop),
+            MatchOptions.Default, FlatGround, NoWind, TestSeed);
 
         Assert.Equal(MatchOutcome.MaxTurnsReached, result.Outcome);
-        Assert.Null(result.WinnerIndex);
+        Assert.Null(result.WinningTeamId);
         Assert.Equal(SimConstants.MaxTurnsPerMatch, result.TurnCount);
     }
 
@@ -131,29 +124,32 @@ public class MatchSimulatorTests
         var c0   = MakeCombatant(0.0);
         var c1   = MakeCombatant(50.0);
         var noop = new ScriptedAgent(NoopAction);
+        var kill = new ScriptedAgent(KillAction);
 
-        // Verify for both early-exit and cap cases.
-        var stalemate = Sim.Run(c0, c1, noop, noop, FlatGround, NoWind, TestSeed);
+        var stalemate = Sim.Run(Duel(c0, noop, c1, noop),
+            MatchOptions.Default, FlatGround, NoWind, TestSeed);
         Assert.Equal(stalemate.TurnCount, stalemate.Log.Count);
 
-        var kill   = new ScriptedAgent(KillAction);
-        var earlyExit = Sim.Run(c0, c1, kill, noop, FlatGround, NoWind, TestSeed);
+        var earlyExit = Sim.Run(Duel(c0, kill, c1, noop),
+            MatchOptions.Default, FlatGround, NoWind, TestSeed);
         Assert.Equal(earlyExit.TurnCount, earlyExit.Log.Count);
     }
 
     [Fact]
     public void Determinism_SameInputs_IdenticalOutcome()
     {
-        var c0   = MakeCombatant(0.0);
-        var c1   = MakeCombatant(50.0);
+        var c0 = MakeCombatant(0.0);
+        var c1 = MakeCombatant(50.0);
 
-        var r1 = Sim.Run(c0, c1, new ScriptedAgent(KillAction), new ScriptedAgent(NoopAction), FlatGround, NoWind, TestSeed);
-        var r2 = Sim.Run(c0, c1, new ScriptedAgent(KillAction), new ScriptedAgent(NoopAction), FlatGround, NoWind, TestSeed);
+        var r1 = Sim.Run(Duel(c0, new ScriptedAgent(KillAction), c1, new ScriptedAgent(NoopAction)),
+            MatchOptions.Default, FlatGround, NoWind, TestSeed);
+        var r2 = Sim.Run(Duel(c0, new ScriptedAgent(KillAction), c1, new ScriptedAgent(NoopAction)),
+            MatchOptions.Default, FlatGround, NoWind, TestSeed);
 
-        Assert.Equal(r1.Outcome,     r2.Outcome);
-        Assert.Equal(r1.WinnerIndex, r2.WinnerIndex);
-        Assert.Equal(r1.TurnCount,   r2.TurnCount);
-        Assert.Equal(r1.Log.Count,   r2.Log.Count);
+        Assert.Equal(r1.Outcome,       r2.Outcome);
+        Assert.Equal(r1.WinningTeamId, r2.WinningTeamId);
+        Assert.Equal(r1.TurnCount,     r2.TurnCount);
+        Assert.Equal(r1.Log.Count,     r2.Log.Count);
     }
 
     [Fact]
@@ -162,64 +158,62 @@ public class MatchSimulatorTests
         var c0 = MakeCombatant(0.0);
         var c1 = MakeCombatant(50.0);
 
-        var r1 = Sim.Run(c0, c1, new ScriptedAgent(KillAction), new ScriptedAgent(NoopAction), FlatGround, NoWind, TestSeed);
-        var r2 = Sim.Run(c0, c1, new ScriptedAgent(KillAction), new ScriptedAgent(NoopAction), FlatGround, NoWind, TestSeed);
+        var r1 = Sim.Run(Duel(c0, new ScriptedAgent(KillAction), c1, new ScriptedAgent(NoopAction)),
+            MatchOptions.Default, FlatGround, NoWind, TestSeed);
+        var r2 = Sim.Run(Duel(c0, new ScriptedAgent(KillAction), c1, new ScriptedAgent(NoopAction)),
+            MatchOptions.Default, FlatGround, NoWind, TestSeed);
 
         for (int i = 0; i < r1.Log.Count; i++)
             Assert.Equal(r1.Log[i], r2.Log[i]);
     }
 
     [Fact]
-    public void SelfDamage_ShotWithinOwnBlastRadius_DamagesShooter()
+    public void SelfDamage_FriendlyFireOn_ShotWithinOwnRadius_DamagesShooter()
     {
-        // c0 fires straight up (90°, low speed) — lands back at c0's feet.
-        // SmallBlastWeapon radius = 2 m; c0 at (0,0) takes near-full damage.
-        // c1 at (200, 0) is 200 m from impact — far outside 2 m radius → no damage.
-        var c0     = MakeCombatant(0.0);
-        var c1     = MakeCombatant(200.0);
+        // c0 fires straight up, low speed → lands at c0's feet; 2 m radius covers c0 only.
+        // c1 at 200 m is well outside radius → no damage.
+        var c0      = MakeCombatant(0.0);
+        var c1      = MakeCombatant(200.0);
         var selfHit = new ScriptedAgent(StraightUpSmall);
         var noop    = new ScriptedAgent(NoopAction);
 
-        var result = Sim.Run(c0, c1, selfHit, noop, FlatGround, NoWind, TestSeed);
-
+        var result    = Sim.Run(Duel(c0, selfHit, c1, noop), MatchOptions.Default, FlatGround, NoWind, TestSeed);
         var firstTurn = result.Log[0];
-        Assert.True(firstTurn.Combatant0Result.DamageReceived > 0.0,
+
+        Assert.True(firstTurn.CombatantResults[0].DamageReceived > 0.0,
             "Shooter (combatant 0) must take self-damage when within own blast radius.");
-        Assert.Equal(0.0, firstTurn.Combatant1Result.DamageReceived);
+        Assert.Equal(0.0, firstTurn.CombatantResults[1].DamageReceived);
     }
 
     [Fact]
-    public void BothInBlastRadius_DamagesBothCombatants()
+    public void BothInBlastRadius_FriendlyFireOn_DamagesBothCombatants()
     {
-        // c0 at (0,0) fires straight up — lands at ≈(0,0).
-        // c1 at (1,0) is within SmallBlastWeapon's 2 m radius → both take damage.
+        // c0 at (0,0) fires straight up → impact ≈ (0,0); c1 at (1,0) is within 2 m radius.
         var c0     = MakeCombatant(0.0);
         var c1     = MakeCombatant(1.0);
-        var splash  = new ScriptedAgent(StraightUpSmall);
-        var noop    = new ScriptedAgent(NoopAction);
+        var splash = new ScriptedAgent(StraightUpSmall);
+        var noop   = new ScriptedAgent(NoopAction);
 
-        var result = Sim.Run(c0, c1, splash, noop, FlatGround, NoWind, TestSeed);
-
+        var result    = Sim.Run(Duel(c0, splash, c1, noop), MatchOptions.Default, FlatGround, NoWind, TestSeed);
         var firstTurn = result.Log[0];
-        Assert.True(firstTurn.Combatant0Result.DamageReceived > 0.0, "Shooter takes self-damage.");
-        Assert.True(firstTurn.Combatant1Result.DamageReceived > 0.0, "Nearby opponent takes splash damage.");
+
+        Assert.True(firstTurn.CombatantResults[0].DamageReceived > 0.0, "Shooter takes self-damage.");
+        Assert.True(firstTurn.CombatantResults[1].DamageReceived > 0.0, "Nearby opponent takes splash damage.");
     }
 
     [Fact]
     public void DoubleKO_ProducesDraw()
     {
         // Both combatants start with 1 HP and sit within SmallBlastWeapon's 2 m radius.
-        // c0 fires straight up → impact ≈(0,0).
-        // c0 at distance ~0: takes 50 damage → HP = 1 − 50 = −49 → defeated.
-        // c1 at distance 1: distanceFactor = 0.5, damage = 25 → HP = 1 − 25 = −24 → defeated.
+        // c0 fires straight up → both defeated in the same turn.
         var c0      = MakeCombatant(0.0, hp: 1.0);
         var c1      = MakeCombatant(1.0, hp: 1.0);
         var suicide = new ScriptedAgent(StraightUpSmall);
         var noop    = new ScriptedAgent(NoopAction);
 
-        var result = Sim.Run(c0, c1, suicide, noop, FlatGround, NoWind, TestSeed);
+        var result = Sim.Run(Duel(c0, suicide, c1, noop), MatchOptions.Default, FlatGround, NoWind, TestSeed);
 
         Assert.Equal(MatchOutcome.Draw, result.Outcome);
-        Assert.Null(result.WinnerIndex);
+        Assert.Null(result.WinningTeamId);
     }
 }

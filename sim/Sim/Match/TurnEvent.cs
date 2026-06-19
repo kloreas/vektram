@@ -1,21 +1,54 @@
+using System;
+using System.Collections.Generic;
 using Sim.Core;
 
 namespace Sim.Match;
 
 /// <summary>
 /// Complete record of one turn, sufficient to replay it from stored state.
-/// Combatant indices (0 and 1) are stable across the whole match.
+/// Combatant indices are stable across the whole match and parallel the
+/// <see cref="CombatantEntry"/> roster passed to <see cref="IMatchSimulator.Run"/>.
 /// </summary>
 /// <param name="TurnNumber">Zero-based turn index.</param>
-/// <param name="ActingCombatantIndex">0 or 1 — which combatant fired this turn.</param>
+/// <param name="ActingCombatantIndex">Roster index of the combatant that fired this turn.</param>
 /// <param name="Action">The action the acting combatant submitted.</param>
 /// <param name="ImpactPoint">World position where the projectile hit the terrain surface.</param>
-/// <param name="Combatant0Result">HP change for combatant 0 this turn (may be self-damage if 0 was the actor).</param>
-/// <param name="Combatant1Result">HP change for combatant 1 this turn (may be self-damage if 1 was the actor).</param>
+/// <param name="CombatantResults">
+/// Per-combatant HP change for this turn, indexed by roster position.
+/// A combatant shielded by friendly-fire rules, or outside blast radius, records
+/// <see cref="CombatantTurnResult.DamageReceived"/> of 0.
+/// </param>
 public readonly record struct TurnEvent(
     int TurnNumber,
     int ActingCombatantIndex,
     FireAction Action,
     Vec2D ImpactPoint,
-    CombatantTurnResult Combatant0Result,
-    CombatantTurnResult Combatant1Result);
+    IReadOnlyList<CombatantTurnResult> CombatantResults)
+{
+    // CombatantResults is IReadOnlyList<T> (a reference type), so the compiler-generated
+    // Equals would use reference equality — wrong for determinism tests. Override with
+    // element-wise comparison instead.
+
+    /// <inheritdoc/>
+    public bool Equals(TurnEvent other)
+    {
+        if (TurnNumber           != other.TurnNumber           ||
+            ActingCombatantIndex != other.ActingCombatantIndex ||
+            !Action.Equals(other.Action)                       ||
+            !ImpactPoint.Equals(other.ImpactPoint))
+            return false;
+
+        if (CombatantResults.Count != other.CombatantResults.Count)
+            return false;
+
+        for (int i = 0; i < CombatantResults.Count; i++)
+            if (!CombatantResults[i].Equals(other.CombatantResults[i]))
+                return false;
+
+        return true;
+    }
+
+    /// <inheritdoc/>
+    public override int GetHashCode()
+        => HashCode.Combine(TurnNumber, ActingCombatantIndex, Action, ImpactPoint);
+}

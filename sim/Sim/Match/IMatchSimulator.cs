@@ -1,10 +1,11 @@
+using System.Collections.Generic;
 using Sim.Projectile;
 using Sim.Terrain;
 
 namespace Sim.Match;
 
 /// <summary>
-/// Runs a complete 1v1 match from initial state to a terminal outcome.
+/// Runs a complete team-based match from initial roster to a terminal outcome.
 /// </summary>
 public interface IMatchSimulator
 {
@@ -12,18 +13,18 @@ public interface IMatchSimulator
     /// Runs a complete match deterministically.
     /// Identical inputs (including <paramref name="seed"/>) always produce an identical <see cref="MatchResult"/>.
     /// </summary>
-    /// <param name="combatant0">Initial state of player 0. <c>Position.Y</c> must be on the terrain surface.</param>
-    /// <param name="combatant1">Initial state of player 1. <c>Position.Y</c> must be on the terrain surface.</param>
-    /// <param name="agent0">Decision-maker for combatant 0.</param>
-    /// <param name="agent1">Decision-maker for combatant 1.</param>
+    /// <param name="combatants">
+    /// Full match roster. Each entry carries the combatant's initial state, its team id, and its
+    /// controlling agent. Must contain at least two entries on at least two distinct teams.
+    /// A 1v1 match is two entries with team ids 0 and 1.
+    /// </param>
+    /// <param name="options">Match rules (friendly fire, self-damage).</param>
     /// <param name="terrain">Ground surface for projectile collision.</param>
     /// <param name="environment">Gravity and wind constants for the match.</param>
     /// <param name="seed">Forwarded to <see cref="Sim.Projectile.FireCommand"/> for future RNG mechanics.</param>
     MatchResult Run(
-        Combatant combatant0,
-        Combatant combatant1,
-        IAgent agent0,
-        IAgent agent1,
+        IReadOnlyList<CombatantEntry> combatants,
+        MatchOptions options,
         ITerrainQuery terrain,
         WorldEnvironment environment,
         uint seed);
