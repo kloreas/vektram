@@ -41,6 +41,7 @@ dotnet test sim/Sim.sln
 |------|------|---------|
 | `Vec2D` | `readonly record struct` | Double-precision 2D vector with value equality |
 | `SimConstants` | `static class` | All canonical numeric constants (incl. `MaxTurnsPerMatch = 200`) |
+| `SimRandom` | `sealed class` | Deterministic xorshift64 RNG; splitmix64 seed init; `NextDouble()` → [0,1). Use instead of `System.Random` for cross-runtime reproducibility. |
 | `FireCommand` | `readonly record struct` | Shot inputs: origin, angle, speed, seed |
 | `WorldEnvironment` | `readonly record struct` | Gravity + wind for a round |
 | `TrajectoryPoint` | `readonly record struct` | Position, velocity, time at one tick |
@@ -72,6 +73,13 @@ dotnet test sim/Sim.sln
 | `DamageCalculator` | `static class` | Pure blast damage: linear falloff × DamageModifier − Defense, clamped ≥ 0 |
 | `MatchSimulator` | class | Team-based turn engine; uses `RoundRobinTurnOrderPolicy`; win condition: last team with living members |
 
+### AI
+
+| Type | Kind | Purpose |
+|------|------|---------|
+| `BotDifficulty` | `readonly record struct` | Tuning knobs: `SearchBudget`, `AimNoiseDegrees`, `WindCompensationFactor`. Presets: `Easy`, `Medium`, `Hard`. Canonical values → /content eventually. |
+| `BotAgent` | `sealed class : IAgent` | Grid-searches launch angles, scores by X-distance to nearest enemy, applies aim noise via `SimRandom`. Constructor takes `IProjectileSimulator`, `Weapon`, `BotDifficulty`, `uint seed`. |
+
 ## Project Structure
 
 ```
@@ -86,12 +94,14 @@ sim/
                   MatchOutcome, MatchResult,
                   IAgent, ITurnOrderPolicy, RoundRobinTurnOrderPolicy,
                   IMatchSimulator, DamageCalculator, MatchSimulator
+    Ai/           BotDifficulty, BotAgent
   Sim.Tests/
     Projectile/   ProjectileSimulatorTests (10 tests)
     Terrain/      ProjectileTerrainTests (9 cases, 3 via Theory)
     Match/        DamageCalculatorTests (7), MatchSimulatorTests (11 — 1v1 regression),
                   TeamMatchSimulatorTests (11 — team-specific),
                   ScriptedAgent (test-only IAgent helper)
+    Ai/           BotAgentTests (8 tests)
   Sim.sln
 ```
 
