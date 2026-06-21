@@ -71,7 +71,8 @@ dotnet test sim/Sim.sln
 | `RoundRobinTurnOrderPolicy` | `sealed class` | Default policy: teams alternate, living members cycle within each team in roster order |
 | `IMatchSimulator` | interface | `Run(IReadOnlyList<CombatantEntry>, MatchOptions, ...)` — deterministic, seeded |
 | `DamageCalculator` | `static class` | Pure blast damage: linear falloff × DamageModifier − Defense, clamped ≥ 0 |
-| `MatchSimulator` | class | Team-based turn engine; uses `RoundRobinTurnOrderPolicy`; win condition: last team with living members |
+| `MatchController` | `sealed class` | **Steppable, agent-agnostic turn driver.** Constructor takes combatants + teamIds separately (no agents). API: `IsOver`, `CurrentActorIndex`, `CurrentState`, `ResolveTurn(FireAction)` (throws `InvalidOperationException` if called after `IsOver`), `Result` (throws if not yet over). `MatchSimulator.Run` is a thin loop over this. |
+| `MatchSimulator` | `sealed class` | Thin agent-driven loop over `MatchController`; uses `RoundRobinTurnOrderPolicy`. |
 
 ### AI
 
@@ -93,13 +94,14 @@ sim/
                   MatchOptions, MatchState, CombatantTurnResult, TurnEvent,
                   MatchOutcome, MatchResult,
                   IAgent, ITurnOrderPolicy, RoundRobinTurnOrderPolicy,
-                  IMatchSimulator, DamageCalculator, MatchSimulator
+                  IMatchSimulator, DamageCalculator, MatchController, MatchSimulator
     Ai/           BotDifficulty, BotAgent
   Sim.Tests/
     Projectile/   ProjectileSimulatorTests (10 tests)
     Terrain/      ProjectileTerrainTests (9 cases, 3 via Theory)
     Match/        DamageCalculatorTests (7), MatchSimulatorTests (11 — 1v1 regression),
                   TeamMatchSimulatorTests (11 — team-specific),
+                  MatchControllerTests (6 — steppable driver),
                   ScriptedAgent (test-only IAgent helper)
     Ai/           BotAgentTests (8 tests)
   Sim.sln
