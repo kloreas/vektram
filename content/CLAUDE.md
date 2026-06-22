@@ -41,6 +41,13 @@ Current files:
 - `data/elements.json` (+ `schema/elements.schema.json`) — element set + a sparse advantage
   matrix (loaded by `Sim.Content.ElementTable.FromJson`). Unspecified pairs default to 1.0
   (pure DDTank additive); the advantage multipliers are **first-pass tuning**, to be iterated.
+- `data/items.json` (+ `schema/items.schema.json`) — items and their data-defined effects
+  (loaded by `Sim.Content.ItemCatalog.FromJson`). System #3 scope: `GrantBall` (references a
+  `balls.json` id) and `RestoreHp` (flat amount). Item use is server-authoritative; the client
+  only displays. `ItemCatalog.ValidateBallReferences(BallCatalog)` fail-fast checks `GrantBall`
+  ids against `balls.json`. No `CombatTuning.Default`-style C# mirror, so no drift-lock test;
+  a shipped-file test instead confirms it loads and its ball refs resolve. **Deferred to #4:**
+  equipment categories + the modifier-stack stat assembly; heal strengthen-scaling.
 
 ## Enforced by Export Pipeline (planned)
 

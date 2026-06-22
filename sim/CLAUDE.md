@@ -108,8 +108,28 @@ model + a `<Domain>Catalog` with a **pure `FromJson(string)`** parser + a
 | `CombatTuning` | `readonly record struct` | Damage formula divisors/caps/curves (guard/defence divisors + caps, falloffStrength, attackFloor/Scale, baseDamageBonusDivisor). `FromJson(string)`. `CombatTuning.Default` **mirrors `combat.json`** and is **pinned to it by a drift-lock test**. |
 | `ElementTable` | `sealed class` | Data-driven element advantage matrix. `FromJson(string)`, `Advantage(attacker, defender)` (unspecified pairs → 1.0 = pure DDTank additive). `ElementTable.Neutral` = all 1.0. |
 | `CombatDataException` | `sealed class` | Clear error for malformed/invalid combat tuning or element data. |
+| `ItemCategory` | `enum` | `BallGrant`, `Consumable` (open; equipment categories = #4). |
+| `ItemEffectKind` | `enum` | `GrantBall`, `RestoreHp` (open; stat/buff + equip effects = #4). |
+| `ItemEffect` | `readonly record struct` | Data-defined effect: `Kind` + `BallId` (GrantBall) / `Amount` (RestoreHp). No item logic in C#. |
+| `ItemDefinition` | `readonly record struct` | One item: `Id`, `DisplayName`, `Category`, `MaxStack`, `Effect`. |
+| `ItemCatalog` | `sealed class` | Immutable id→`ItemDefinition` registry. `FromJson`, `Get`/`TryGet`, `Ids`, `Count`. Validates shape, unique ids, `maxStack≥1`, effect fields. **`ValidateBallReferences(BallCatalog)`** = optional fail-fast cross-catalog check (resolution-time `Get` also throws on dangling refs). |
+| `ItemDataException` | `sealed class` | Clear error for malformed/invalid/missing item data; messages name id/field/index. |
 
-Canonical data: `content/data/{balls,combat,elements}.json` (+ matching `content/schema/*.schema.json`).
+Canonical data: `content/data/{balls,combat,elements,items}.json` (+ matching `content/schema/*.schema.json`).
+
+### Items (runtime state — `Sim.Items`, not authored content)
+
+Server-authoritative player-held state and the pure seams that resolve a data-defined
+`ItemEffect`. The **client never mutates** inventory; it displays. `Sim.Items` has **no
+`Sim.Match` dependency** (the heal seam works on plain doubles).
+
+| Type | Kind | Purpose |
+|------|------|---------|
+| `Inventory` | `sealed class` (immutable, value-equality) | id→count. Pure ops: `Add`, `Remove`, `Consume`, `CountOf`, `Contains`, `Entries` (ordinal order), `StackCount`; `Inventory.Empty`. Never stores zero/negative counts; every op returns a new instance. |
+| `ItemUseOutcome` | `readonly record struct` | `Success` + resulting `Inventory` (reduced on success, unchanged on failure). |
+| `ItemEffects` | `static class` | Pure resolution seams: `ResolveGrantedBall(BallCatalog, ItemEffect)` → `BallDefinition`; `ResolveRestoredHp(currentHp, maxHp, amount)` → clamped HP (no overheal). |
+
+**#3/#4 boundary:** #3 = item data + catalog + inventory + effect-resolution seams. #4 = equipment categories, the base+equip+rune+costume+buff modifier-stack that **assembles** effective `CombatantStats`, and wiring item/equip use into the live turn flow. Items here describe effects as **data**; they are not yet applied inside `MatchController`.
 
 **Damage model (system #2, ADR-0005):** the formula *shape* is adopted from DDTank's `MakeDamage` (multiplicative guard/defence DR with caps, attack scaling with a floor, a forgiving distance falloff, an additive element layer + modern advantage multiplier, a crit multiplier). Divisors/curves live in `/content`, not C#. **Deliberately not replicated:** integer truncation of final damage, per-room formula-*shape* switching (a scalar `ModeMultiplier` is used instead; rooms #5 supply it), and client-trusted rolls (all crit/miss rolls are server-side seeded `SimRandom`). **Deferred:** separate magic layer, `ExtraDamage`/`CulturalAdd` buff multipliers, and pet sigmoid DR.
 
@@ -128,7 +148,10 @@ sim/
                   IAgent, ITurnOrderPolicy, RoundRobinTurnOrderPolicy,
                   IMatchSimulator, DamageCalculator, MatchController, MatchSimulator
     Content/      ShellType, BallDefinition, BallCatalog, BallDataException,
-                  Element, CombatTuning, ElementTable, CombatDataException
+                  Element, CombatTuning, ElementTable, CombatDataException,
+                  ItemCategory, ItemEffectKind, ItemEffect, ItemDefinition,
+                  ItemCatalog, ItemDataException
+    Items/        Inventory, ItemUseOutcome, ItemEffects
     Ai/           BotDifficulty, BotAgent
   Sim.Tests/
     Projectile/   ProjectileSimulatorTests (10), ShellPhysicsTests (6 — incl.
@@ -142,9 +165,11 @@ sim/
                   ScriptedAgent (test-only IAgent helper)
     Content/      BallCatalogTests, BallsContentFileTests (validates shipped balls.json),
                   CombatTuningTests (incl. combat.json == CombatTuning.Default drift-lock),
-                  ElementTableTests
+                  ElementTableTests, ItemCatalogTests,
+                  ItemsContentFileTests (validates shipped items.json + ball refs)
+    Items/        InventoryTests, ItemEffectsTests
     Ai/           BotAgentTests (8)
-  Sim.sln          (121 tests green)
+  Sim.sln          (161 tests green)
 ```
 
 ## What Belongs Here

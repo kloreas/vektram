@@ -1,0 +1,68 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://vektram/content/schema/items.schema.json",
+  "title": "Item Catalog",
+  "description": "Player-facing items and their effects, expressed as DATA (DDTank ItemTemplateInfo: effect type + value), per ADR-0005. Loaded by Sim.Content.ItemCatalog.FromJson; hosts read the file, /sim parses the text. Item use is server-authoritative — the client never resolves or applies effects, it only displays. SCOPE (system #3): two effect kinds — GrantBall (references a balls.json id) and RestoreHp (flat amount). DEFERRED: equipment categories and the base+equip+rune+costume+buff modifier stack that assembles effective stats (system #4); the 1.1^StrengthenLevel / countBonus heal scaling (needs enhancement levels); in-match drops/pickup/quota. Values here are first-pass tuning, iterated later.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "items"],
+  "properties": {
+    "schemaVersion": { "type": "integer", "const": 1 },
+    "items": {
+      "type": "array",
+      "items": { "$ref": "#/definitions/item" }
+    }
+  },
+  "definitions": {
+    "item": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "displayName", "category", "maxStack", "effect"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Stable lookup key. Must be unique within the catalog."
+        },
+        "displayName": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Display-only label. Has no effect on resolution."
+        },
+        "category": {
+          "type": "string",
+          "enum": ["BallGrant", "Consumable"],
+          "description": "Item category. Starter set only; equipment categories arrive with system #4."
+        },
+        "maxStack": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Maximum count per inventory stack."
+        },
+        "effect": { "$ref": "#/definitions/effect" }
+      }
+    },
+    "effect": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind"],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": ["GrantBall", "RestoreHp"],
+          "description": "Effect discriminator. GrantBall requires ballId; RestoreHp requires amount."
+        },
+        "ballId": {
+          "type": "string",
+          "minLength": 1,
+          "description": "GrantBall: the balls.json shell id this item makes available. Must reference a valid ball."
+        },
+        "amount": {
+          "type": "number",
+          "minimum": 0,
+          "description": "RestoreHp: flat hit points restored (clamped to max HP at resolution; no overheal)."
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "items": [
+    {
+      "id": "shell_standard",
+      "displayName": "Standard Shell",
+      "category": "BallGrant",
+      "maxStack": 99,
+      "effect": { "kind": "GrantBall", "ballId": "standard" }
+    },
+    {
+      "id": "shell_heavy",
+      "displayName": "Heavy Shell",
+      "category": "BallGrant",
+      "maxStack": 99,
+      "effect": { "kind": "GrantBall", "ballId": "heavy" }
+    },
+    {
+      "id": "shell_light",
+      "displayName": "Light Shell",
+      "category": "BallGrant",
+      "maxStack": 99,
+      "effect": { "kind": "GrantBall", "ballId": "light" }
+    },
+    {
+      "id": "heal_small",
+      "displayName": "Small Heal Stone",
+      "category": "Consumable",
+      "maxStack": 20,
+      "effect": { "kind": "RestoreHp", "amount": 150.0 }
+    }
+  ]
+}
