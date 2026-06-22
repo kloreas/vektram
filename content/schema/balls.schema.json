@@ -1,0 +1,73 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://vektram/content/schema/balls.schema.json",
+  "title": "Ball / Shell Catalog",
+  "description": "Per-shell physics character + blast/damage data. DDTank shell character is modeled as data tuned to feel right on Vektram's Velocity Verlet core (ADR-0002, ADR-0005), NOT a copy of DDTank's legacy 25Hz Euler integrator. Hosts read this file and hand the text to Sim.Content.BallCatalog.FromJson; /sim never does file I/O. KNOWN DEFERRED ITEM: velocity-dependent air-resistance drag (DDTank DragIndex) is intentionally NOT modeled here — it would make per-shot acceleration non-constant and void ADR-0002's analytic-exactness guarantee. Adding it requires its own ADR-0002 amendment + integrator re-validation. The heavy/floaty + wind-drift feel is captured via gravityScale + windSensitivity instead.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "balls"],
+  "properties": {
+    "schemaVersion": {
+      "type": "integer",
+      "const": 1,
+      "description": "Schema version. Bump on breaking changes; old artefacts must remain loadable for the compatibility window (see content/CLAUDE.md)."
+    },
+    "balls": {
+      "type": "array",
+      "items": { "$ref": "#/definitions/ball" }
+    }
+  },
+  "definitions": {
+    "ball": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id", "displayName", "type",
+        "gravityScale", "windSensitivity",
+        "blastRadius", "baseDamage", "projectileSpeed"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Stable lookup key (DDTank BallInfo.ID). Must be unique within the catalog."
+        },
+        "displayName": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Display-only label. Has no stat effect."
+        },
+        "type": {
+          "type": "string",
+          "enum": ["Standard", "Heavy", "Light"],
+          "description": "Shell behaviour tag (DDTank BombType). Starter set only; Frozen/Cure/Fly etc. arrive with later systems."
+        },
+        "gravityScale": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "description": "Dimensionless multiplier on the round's gravity (DDTank Weight). >1 falls faster (heavy), <1 floats. Keeps per-shot acceleration constant."
+        },
+        "windSensitivity": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Dimensionless multiplier on the round's horizontal wind (DDTank Wind mult / Mass, combined). Higher = drifts more. Keeps per-shot acceleration constant."
+        },
+        "blastRadius": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "description": "Damage-area radius in metres (DDTank Radii)."
+        },
+        "baseDamage": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Maximum damage at blast centre before modifiers, in HP (DDTank Power)."
+        },
+        "projectileSpeed": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Default launch speed in m/s. Actual launch speed may be overridden by charge mechanics at fire time."
+        }
+      }
+    }
+  }
+}

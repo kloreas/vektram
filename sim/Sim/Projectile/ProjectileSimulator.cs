@@ -13,7 +13,11 @@ namespace Sim.Projectile;
 public sealed class ProjectileSimulator : IProjectileSimulator
 {
     /// <inheritdoc/>
-    public ShotResult Simulate(FireCommand command, WorldEnvironment environment, ITerrainQuery terrain)
+    public ShotResult Simulate(FireCommand command, WorldEnvironment environment, ITerrainQuery terrain) =>
+        Simulate(command, environment, terrain, ShellPhysics.Neutral);
+
+    /// <inheritdoc/>
+    public ShotResult Simulate(FireCommand command, WorldEnvironment environment, ITerrainQuery terrain, ShellPhysics physics)
     {
         if (command.Origin.Y < terrain.GetHeight(command.Origin.X))
             throw new ArgumentException("Origin is below the terrain surface.", nameof(command));
@@ -21,13 +25,19 @@ public sealed class ProjectileSimulator : IProjectileSimulator
             throw new ArgumentException("Speed must be >= 0.", nameof(command));
         if (environment.Gravity < 0.0)
             throw new ArgumentException("Gravity must be >= 0.", nameof(environment));
+        if (physics.GravityScale <= 0.0)
+            throw new ArgumentException("ShellPhysics.GravityScale must be > 0.", nameof(physics));
+        if (physics.WindSensitivity < 0.0)
+            throw new ArgumentException("ShellPhysics.WindSensitivity must be >= 0.", nameof(physics));
 
         double angleRad = command.AngleDegrees * SimConstants.DegToRad;
         Vec2D  velocity = new Vec2D(
             command.Speed * Math.Cos(angleRad),
             command.Speed * Math.Sin(angleRad));
         Vec2D  position = command.Origin;
-        Vec2D  accel    = new Vec2D(environment.WindX, -environment.Gravity);
+        Vec2D  accel    = new Vec2D(
+            environment.WindX * physics.WindSensitivity,
+            -(environment.Gravity * physics.GravityScale));
 
         const double dt       = SimConstants.FixedTimestep;
         double       halfDtSq = 0.5 * dt * dt;

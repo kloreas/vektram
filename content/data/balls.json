@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 1,
+  "balls": [
+    {
+      "id": "standard",
+      "displayName": "Standard Shell",
+      "type": "Standard",
+      "gravityScale": 1.0,
+      "windSensitivity": 1.0,
+      "blastRadius": 2.5,
+      "baseDamage": 100.0,
+      "projectileSpeed": 45.0
+    },
+    {
+      "id": "heavy",
+      "displayName": "Heavy Shell",
+      "type": "Heavy",
+      "gravityScale": 1.4,
+      "windSensitivity": 0.5,
+      "blastRadius": 3.2,
+      "baseDamage": 140.0,
+      "projectileSpeed": 40.0
+    },
+    {
+      "id": "light",
+      "displayName": "Light Shell",
+      "type": "Light",
+      "gravityScale": 0.75,
+      "windSensitivity": 1.7,
+      "blastRadius": 2.0,
+      "baseDamage": 75.0,
+      "projectileSpeed": 50.0
+    }
+  ]
+}

@@ -24,4 +24,12 @@
   <ItemGroup>
     <ProjectReference Include="..\Sim\Sim.csproj" />
   </ItemGroup>
+
+  <ItemGroup>
+    <!-- The shipped content file, copied to test output so BallsContentFileTests can
+         read it from disk. The test project (not /sim) performs the file I/O. -->
+    <None Include="..\..\content\data\balls.json" Link="content\balls.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
 </Project>
