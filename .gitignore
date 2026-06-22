@@ -55,6 +55,9 @@ yarn-error.log
 # ── Claude Code (machine-local, never shared) ────────────────────────────────
 .claude/settings.local.json
 
+# DDTank source — reference basis for the revision; we port FROM it, it isn't built into Vektram
+/ddtank/
+
 # ── OS ────────────────────────────────────────────────────────────────────────
 .DS_Store
 .DS_Store?
