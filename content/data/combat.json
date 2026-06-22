@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "guardDivisor": 12000.0,
+  "guardReduceCap": 0.60,
+  "defenceDivisor": 80000.0,
+  "defenceReduceCap": 0.90,
+  "falloffStrength": 0.25,
+  "attackFloor": 0.6,
+  "attackScale": 0.00008,
+  "baseDamageBonusDivisor": 10000.0
+}

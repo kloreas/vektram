@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "elements": ["None", "Fire", "Water", "Wind", "Land", "Light", "Dark"],
+  "advantages": [
+    { "attacker": "Fire",  "defender": "Wind",  "multiplier": 1.25 },
+    { "attacker": "Wind",  "defender": "Fire",  "multiplier": 0.8 },
+    { "attacker": "Wind",  "defender": "Land",  "multiplier": 1.25 },
+    { "attacker": "Land",  "defender": "Wind",  "multiplier": 0.8 },
+    { "attacker": "Land",  "defender": "Water", "multiplier": 1.25 },
+    { "attacker": "Water", "defender": "Land",  "multiplier": 0.8 },
+    { "attacker": "Water", "defender": "Fire",  "multiplier": 1.25 },
+    { "attacker": "Fire",  "defender": "Water", "multiplier": 0.8 },
+    { "attacker": "Light", "defender": "Dark",  "multiplier": 1.25 },
+    { "attacker": "Dark",  "defender": "Light", "multiplier": 1.25 }
+  ]
+}

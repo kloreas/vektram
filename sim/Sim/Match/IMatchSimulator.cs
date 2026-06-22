@@ -21,11 +21,16 @@ public interface IMatchSimulator
     /// <param name="options">Match rules (friendly fire, self-damage).</param>
     /// <param name="terrain">Ground surface for projectile collision.</param>
     /// <param name="environment">Gravity and wind constants for the match.</param>
-    /// <param name="seed">Forwarded to <see cref="Sim.Projectile.FireCommand"/> for future RNG mechanics.</param>
+    /// <param name="seed">Forwarded to <see cref="Sim.Projectile.FireCommand"/> and used to seed the crit/miss RNG.</param>
+    /// <param name="rules">
+    /// Damage tuning, room/mode multiplier, and element table. When <see langword="null"/>,
+    /// <see cref="CombatRules.Default"/> is used.
+    /// </param>
     MatchResult Run(
         IReadOnlyList<CombatantEntry> combatants,
         MatchOptions options,
         ITerrainQuery terrain,
         WorldEnvironment environment,
-        uint seed);
+        uint seed,
+        CombatRules? rules = null);
 }

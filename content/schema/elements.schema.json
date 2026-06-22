@@ -1,0 +1,34 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://vektram/content/schema/elements.schema.json",
+  "title": "Element Advantage Table",
+  "description": "The element set and a sparse advantage-multiplier matrix consumed by the damage formula's element layer. FAITHFUL BASE: DDTank's element layer is additive (attacker ElementPower minus defender ElementResist); the advantage multiplier is a tasteful modern layer (ADR-0005) that defaults to 1.0 for every unspecified pair, so with no overrides the behaviour is pure DDTank additive. FIRST-PASS TUNING — the advantages below (Fire>Wind>Land>Water>Fire cycle, Light<->Dark mutual) are a felt, testable starting point, NOT canonical balance; the designer will iterate these.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "elements", "advantages"],
+  "properties": {
+    "schemaVersion": { "type": "integer", "const": 1 },
+    "elements": {
+      "type": "array",
+      "description": "The active element set. Must match the Sim.Content.Element enum.",
+      "items": { "type": "string", "enum": ["None", "Fire", "Water", "Wind", "Land", "Light", "Dark"] }
+    },
+    "advantages": {
+      "type": "array",
+      "description": "Sparse overrides. Any (attacker, defender) pair not listed defaults to 1.0.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["attacker", "defender", "multiplier"],
+        "properties": {
+          "attacker":  { "type": "string", "enum": ["None", "Fire", "Water", "Wind", "Land", "Light", "Dark"] },
+          "defender":  { "type": "string", "enum": ["None", "Fire", "Water", "Wind", "Land", "Light", "Dark"] },
+          "multiplier": {
+            "type": "number", "minimum": 0,
+            "description": "Multiplier applied to the element bonus when attacker's element hits defender's element. 1.0 = neutral, >1 advantage, <1 disadvantage."
+          }
+        }
+      }
+    }
+  }
+}

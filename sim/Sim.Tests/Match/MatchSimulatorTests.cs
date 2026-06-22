@@ -36,6 +36,14 @@ public class MatchSimulatorTests
     private static readonly FireAction NoopAction      = new(90.0, 0.5, NoDamageWeapon);
     private static readonly FireAction StraightUpSmall = new(90.0, 0.5, SmallBlastWeapon);
 
+    // Clean-win fixture: under the new edge-falloff (0.25) a long-range shot deals enough
+    // splash that the shooter is caught in its own ~255 m blast when the radius is huge
+    // (BigBlastWeapon, 500 m), turning a 1v1 win into a double-KO Draw. For a genuine Team-0
+    // win the enemy sits at the landing point while the shooter stays outside the blast.
+    private const double               CleanWinTargetX = 255.0;                       // ≈ 45°/50 m/s landing point
+    private static readonly Weapon     CleanWinWeapon  = new(ShotSpeed, 200.0, 50.0); // reaches enemy at impact, not back to shooter at x=0
+    private static readonly FireAction CleanWinShot    = new(45.0, ShotSpeed, CleanWinWeapon);
+
     // ── Helpers ───────────────────────────────────────────────────────────────
 
     private static Combatant MakeCombatant(double x, double hp = StartHp)
@@ -50,10 +58,12 @@ public class MatchSimulatorTests
     [Fact]
     public void FullMatch_OnePerTeam_RunsToCompletion()
     {
+        // Enemy at the landing point, shooter outside the blast → clean Team-0 win under the
+        // new falloff (see CleanWinWeapon note).
         var c0 = MakeCombatant(0.0);
-        var c1 = MakeCombatant(50.0);
+        var c1 = MakeCombatant(CleanWinTargetX);
 
-        var result = Sim.Run(Duel(c0, new ScriptedAgent(KillAction), c1, new ScriptedAgent(NoopAction)),
+        var result = Sim.Run(Duel(c0, new ScriptedAgent(CleanWinShot), c1, new ScriptedAgent(NoopAction)),
             MatchOptions.Default, FlatGround, NoWind, TestSeed);
 
         Assert.Equal(MatchOutcome.Team0Wins, result.Outcome);
@@ -78,10 +88,12 @@ public class MatchSimulatorTests
     [Fact]
     public void CorrectWinningTeam_Named()
     {
+        // Enemy at the landing point, shooter outside the blast → clean Team-0 win under the
+        // new falloff (see CleanWinWeapon note).
         var c0 = MakeCombatant(0.0);
-        var c1 = MakeCombatant(50.0);
+        var c1 = MakeCombatant(CleanWinTargetX);
 
-        var result = Sim.Run(Duel(c0, new ScriptedAgent(KillAction), c1, new ScriptedAgent(NoopAction)),
+        var result = Sim.Run(Duel(c0, new ScriptedAgent(CleanWinShot), c1, new ScriptedAgent(NoopAction)),
             MatchOptions.Default, FlatGround, NoWind, TestSeed);
 
         Assert.Equal(MatchOutcome.Team0Wins, result.Outcome);

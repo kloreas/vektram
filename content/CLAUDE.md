@@ -27,10 +27,20 @@ Each content domain follows the same layout so `/sim` loaders stay uniform acros
   via a pure `FromJson(string)` and never does file I/O. The parse is the single source of
   truth, so server and client cannot diverge.
 
-First instance: `data/balls.json` + `schema/balls.schema.json` (shell physics + blast/damage).
-Note the documented deferred item there: velocity-dependent air-resistance drag is not modeled
-(it would void ADR-0002's Velocity-Verlet exactness); shell character is captured via
-`gravityScale` + `windSensitivity` instead.
+Current files:
+
+- `data/balls.json` (+ `schema/balls.schema.json`) — shell physics + blast/damage. Note the
+  documented deferred item: velocity-dependent air-resistance drag is not modeled (it would
+  void ADR-0002's Velocity-Verlet exactness); shell character is captured via `gravityScale` +
+  `windSensitivity` instead.
+- `data/combat.json` (+ `schema/combat.schema.json`) — damage formula tuning (guard/defence
+  divisors + caps, falloff strength, attack floor/scale, base-damage bonus divisor). Loaded by
+  `Sim.Content.CombatTuning.FromJson`. The C# fallback `CombatTuning.Default` mirrors this file
+  and is **pinned to it by a test** (`combat.json == CombatTuning.Default`) so the two cannot
+  drift — `/content` stays the single source of truth.
+- `data/elements.json` (+ `schema/elements.schema.json`) — element set + a sparse advantage
+  matrix (loaded by `Sim.Content.ElementTable.FromJson`). Unspecified pairs default to 1.0
+  (pure DDTank additive); the advantage multipliers are **first-pass tuning**, to be iterated.
 
 ## Enforced by Export Pipeline (planned)
 

@@ -62,23 +62,26 @@ dotnet test sim/Sim.sln
 
 | Type | Kind | Purpose |
 |------|------|---------|
-| `CombatantStats` | `readonly record struct` | MaxHp, DamageModifier (attacker multiplier), Defense (flat reduction) |
+| `CombatantStats` | `readonly record struct` | **Effective/final** stats the damage formula consumes (it never knows their origin; #4 equipment assembles them). 3-arg ctor `MaxHp, DamageModifier, Defense` preserved; neutral-default `init` props: `Attack`, `SunderArmor`, `BaseGuard`, `CritChance`, `CritMultiplier`, `Dodge`, `Element`, `ElementPower`, `ElementResist` |
 | `Combatant` | `readonly record struct` | Position (on terrain surface), Hp, Stats; `IsDefeated` when Hp ≤ 0 |
 | `CombatantEntry` | `readonly record struct` | Roster slot: Combatant + TeamId + IAgent |
 | `Weapon` | `readonly record struct` | ProjectileSpeed, BaseDamage, BlastRadius — data only |
 | `FireAction` | `readonly record struct` | AngleDegrees, Speed (separate from weapon for charge mechanics), Weapon |
 | `MatchOptions` | `readonly record struct` | FriendlyFire (ally blast damage on/off), SelfDamage (self blast damage on/off); both default true |
 | `MatchState` | `readonly record struct` | Self, Allies (living teammates), Enemies (living opponents), Terrain, Environment, TurnNumber |
-| `CombatantTurnResult` | `readonly record struct` | DamageReceived, HpBefore, HpAfter for one combatant in one turn |
+| `DamageInputs` | `readonly record struct` | Resolved inputs to one damage calc: impact/target positions, BaseDamage/BlastRadius, attacker+defender stats, `CombatTuning`, `ModeMultiplier`, `ElementAdvantage`, `IsCrit`, `IsMiss`. RNG + table lookups are resolved by the caller so the formula stays pure. |
+| `DamageResult` | `readonly record struct` | FinalDamage + breakdown for UI/replay: IsMiss, IsCrit, Falloff, GuardReduce, DefenceReduce, AttackFactor, ElementBonus, ModeMultiplier |
+| `CombatRules` | `readonly record struct` | Match combat config from `/content`: `Tuning`, `ModeMultiplier` (room/mode seam for #5), `Elements` (nullable `ElementTable`). `CombatRules.Default` = engine fallback. |
+| `CombatantTurnResult` | `readonly record struct` | DamageReceived, HpBefore, HpAfter (+ `IsCrit`, `IsMiss` init props, default false) for one combatant in one turn |
 | `TurnEvent` | `readonly record struct` | Full turn record: actor index, action, impact point, CombatantResults list (indexed by roster position); custom Equals for element-wise list comparison |
 | `MatchOutcome` | `enum` | Team0Wins, Team1Wins, Draw (all teams KO in same turn), MaxTurnsReached |
 | `MatchResult` | `readonly struct` | Outcome, WinningTeamId (nullable int), TurnCount, Log |
 | `IAgent` | interface | `ChooseAction(MatchState)` — implemented by human adapters and AI bots |
 | `ITurnOrderPolicy` | interface | `NextActor(livingIndices)` — seam for swappable turn scheduling |
 | `RoundRobinTurnOrderPolicy` | `sealed class` | Default policy: teams alternate, living members cycle within each team in roster order |
-| `IMatchSimulator` | interface | `Run(IReadOnlyList<CombatantEntry>, MatchOptions, ...)` — deterministic, seeded |
-| `DamageCalculator` | `static class` | Pure blast damage: linear falloff × DamageModifier − Defense, clamped ≥ 0 |
-| `MatchController` | `sealed class` | **Steppable, agent-agnostic turn driver.** Constructor takes combatants + teamIds separately (no agents). API: `IsOver`, `CurrentActorIndex`, `CurrentState`, `ResolveTurn(FireAction)` (throws `InvalidOperationException` if called after `IsOver`), `Result` (throws if not yet over). `MatchSimulator.Run` is a thin loop over this. |
+| `IMatchSimulator` | interface | `Run(IReadOnlyList<CombatantEntry>, MatchOptions, ..., seed, CombatRules? rules = null)` — deterministic, seeded |
+| `DamageCalculator` | `static class` | **Pure** `Compute(in DamageInputs) → DamageResult`. DDTank-shaped formula: attackFactor × baseScale × falloff × (1−guardReduce) × (1−defenceReduce) × DamageModifier × ModeMultiplier × crit, + element bonus, floored at 0. Divisors/caps/curves come from `CombatTuning` (data). No RNG, no table lookups inside. |
+| `MatchController` | `sealed class` | **Steppable, agent-agnostic turn driver.** Ctor takes combatants + teamIds (no agents) + optional `CombatRules? rules`. Owns a `SimRandom(seed)` for crit/miss rolls — **rolls are drawn only when `Dodge>0` / `CritChance>0`, so neutral-stat matches consume no RNG and stay bit-for-bit deterministic.** Does the seeded rolls + element-advantage lookup, then calls the pure `DamageCalculator`. API: `IsOver`, `CurrentActorIndex`, `CurrentState`, `ResolveTurn(FireAction)`, `Result`. |
 | `MatchSimulator` | `sealed class` | Thin agent-driven loop over `MatchController`; uses `RoundRobinTurnOrderPolicy`. |
 
 ### AI
@@ -101,8 +104,14 @@ model + a `<Domain>Catalog` with a **pure `FromJson(string)`** parser + a
 | `BallDefinition` | `readonly record struct` | One shell type: `Id`, `DisplayName`, `Type`, `Physics` (`ShellPhysics`), `BlastRadius`, `BaseDamage`, `ProjectileSpeed`. Superset of `Weapon`'s physics fields. **Future seam:** `Weapon` will later be sourced from a `BallDefinition`. |
 | `BallCatalog` | `sealed class` | Immutable id→`BallDefinition` registry. `FromJson(string)` (pure, non-reflective `JsonDocument` parse, IL2CPP-safe), `Get`/`TryGet`, `Ids`, `Count`. Validates schema version, required fields, value ranges, duplicate ids. |
 | `BallDataException` | `sealed class` | Clear error for malformed/invalid/missing ball data; messages name the id/field/index. |
+| `Element` | `enum` | Damage element (DDTank emblem set): `None, Fire, Water, Wind, Land, Light, Dark`. |
+| `CombatTuning` | `readonly record struct` | Damage formula divisors/caps/curves (guard/defence divisors + caps, falloffStrength, attackFloor/Scale, baseDamageBonusDivisor). `FromJson(string)`. `CombatTuning.Default` **mirrors `combat.json`** and is **pinned to it by a drift-lock test**. |
+| `ElementTable` | `sealed class` | Data-driven element advantage matrix. `FromJson(string)`, `Advantage(attacker, defender)` (unspecified pairs → 1.0 = pure DDTank additive). `ElementTable.Neutral` = all 1.0. |
+| `CombatDataException` | `sealed class` | Clear error for malformed/invalid combat tuning or element data. |
 
-Canonical data: `content/data/balls.json` (+ `content/schema/balls.schema.json`).
+Canonical data: `content/data/{balls,combat,elements}.json` (+ matching `content/schema/*.schema.json`).
+
+**Damage model (system #2, ADR-0005):** the formula *shape* is adopted from DDTank's `MakeDamage` (multiplicative guard/defence DR with caps, attack scaling with a floor, a forgiving distance falloff, an additive element layer + modern advantage multiplier, a crit multiplier). Divisors/curves live in `/content`, not C#. **Deliberately not replicated:** integer truncation of final damage, per-room formula-*shape* switching (a scalar `ModeMultiplier` is used instead; rooms #5 supply it), and client-trusted rolls (all crit/miss rolls are server-side seeded `SimRandom`). **Deferred:** separate magic layer, `ExtraDamage`/`CulturalAdd` buff multipliers, and pet sigmoid DR.
 
 ## Project Structure
 
@@ -114,24 +123,28 @@ sim/
                   ShotResult, IProjectileSimulator, ProjectileSimulator
     Terrain/      ITerrainQuery, FlatTerrain
     Match/        CombatantStats, Combatant, CombatantEntry, Weapon, FireAction,
-                  MatchOptions, MatchState, CombatantTurnResult, TurnEvent,
-                  MatchOutcome, MatchResult,
+                  MatchOptions, MatchState, DamageInputs, DamageResult, CombatRules,
+                  CombatantTurnResult, TurnEvent, MatchOutcome, MatchResult,
                   IAgent, ITurnOrderPolicy, RoundRobinTurnOrderPolicy,
                   IMatchSimulator, DamageCalculator, MatchController, MatchSimulator
-    Content/      ShellType, BallDefinition, BallCatalog, BallDataException
+    Content/      ShellType, BallDefinition, BallCatalog, BallDataException,
+                  Element, CombatTuning, ElementTable, CombatDataException
     Ai/           BotDifficulty, BotAgent
   Sim.Tests/
-    Projectile/   ProjectileSimulatorTests (10 tests), ShellPhysicsTests (6 — incl.
+    Projectile/   ProjectileSimulatorTests (10), ShellPhysicsTests (6 — incl.
                   exact-equality no-regression of Neutral vs 3-arg path)
     Terrain/      ProjectileTerrainTests (9 cases, 3 via Theory)
-    Match/        DamageCalculatorTests (7), MatchSimulatorTests (11 — 1v1 regression),
+    Match/        DamageCalculatorTests (18 — new DR/element/crit/mode model),
+                  MatchSimulatorTests (11 — 1v1 regression),
                   TeamMatchSimulatorTests (11 — team-specific),
                   MatchControllerTests (6 — steppable driver),
+                  MatchControllerCombatTests (5 — crit/miss/element/mode in-match),
                   ScriptedAgent (test-only IAgent helper)
-    Content/      BallCatalogTests (parse/validation/determinism),
-                  BallsContentFileTests (validates shipped balls.json)
-    Ai/           BotAgentTests (8 tests)
-  Sim.sln          (87 tests green)
+    Content/      BallCatalogTests, BallsContentFileTests (validates shipped balls.json),
+                  CombatTuningTests (incl. combat.json == CombatTuning.Default drift-lock),
+                  ElementTableTests
+    Ai/           BotAgentTests (8)
+  Sim.sln          (121 tests green)
 ```
 
 ## What Belongs Here

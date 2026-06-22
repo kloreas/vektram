@@ -23,6 +23,8 @@ public sealed class MatchController
     private readonly ITerrainQuery        _terrain;
     private readonly WorldEnvironment     _environment;
     private readonly uint                 _seed;
+    private readonly CombatRules          _rules;
+    private readonly SimRandom            _rng;
 
     private readonly int[]            _teamIds;
     private readonly Combatant[]      _combatants;   // live; only Hp changes between turns
@@ -45,7 +47,13 @@ public sealed class MatchController
     /// <param name="options">Friendly-fire and self-damage rules.</param>
     /// <param name="terrain">Ground surface used for projectile collision.</param>
     /// <param name="environment">Gravity and wind for the match.</param>
-    /// <param name="seed">Forwarded as-is to every <see cref="FireCommand"/>.</param>
+    /// <param name="seed">
+    /// Forwarded as-is to every <see cref="FireCommand"/> and used to seed the crit/miss RNG.
+    /// </param>
+    /// <param name="rules">
+    /// Damage tuning, room/mode multiplier, and element table. When <see langword="null"/>,
+    /// <see cref="CombatRules.Default"/> is used (engine fallback, no mode/element adjustment).
+    /// </param>
     public MatchController(
         IProjectileSimulator     projectileSim,
         IReadOnlyList<Combatant> combatants,
@@ -53,7 +61,8 @@ public sealed class MatchController
         MatchOptions             options,
         ITerrainQuery            terrain,
         WorldEnvironment         environment,
-        uint                     seed)
+        uint                     seed,
+        CombatRules?             rules = null)
     {
         int n = combatants.Count;
 
@@ -62,6 +71,8 @@ public sealed class MatchController
         _terrain       = terrain;
         _environment   = environment;
         _seed          = seed;
+        _rules         = rules ?? CombatRules.Default;
+        _rng           = new SimRandom(seed);
 
         _teamIds = new int[n];
         for (int i = 0; i < n; i++) _teamIds[i] = teamIds[i];
@@ -165,12 +176,39 @@ public sealed class MatchController
                 : (!isAlly || _options.FriendlyFire);
 
             double hpBefore = _combatants[i].Hp;
-            double damage   = apply
-                ? DamageCalculator.Compute(shot.ImpactPoint, _combatants[i].Position, action.Weapon, actorStats, _combatants[i].Stats)
-                : 0.0;
+            double damage   = 0.0;
+            bool   isCrit   = false;
+            bool   isMiss   = false;
+
+            if (apply)
+            {
+                CombatantStats defenderStats = _combatants[i].Stats;
+
+                // Rolls are consumed only when the relevant chance is non-zero, so neutral-stat
+                // matches draw no RNG and stay bit-for-bit deterministic across formula versions.
+                isMiss = defenderStats.Dodge > 0.0 && _rng.NextDouble() < defenderStats.Dodge;
+                isCrit = !isMiss && actorStats.CritChance > 0.0 && _rng.NextDouble() < actorStats.CritChance;
+
+                double advantage = _rules.ElementAdvantage(actorStats.Element, defenderStats.Element);
+                var inputs = new DamageInputs(
+                    shot.ImpactPoint, _combatants[i].Position,
+                    action.Weapon.BaseDamage, action.Weapon.BlastRadius,
+                    actorStats, defenderStats,
+                    _rules.Tuning, _rules.ModeMultiplier, advantage,
+                    isCrit, isMiss);
+
+                DamageResult result = DamageCalculator.Compute(inputs);
+                damage = result.FinalDamage;
+                isCrit = result.IsCrit;
+                isMiss = result.IsMiss;
+            }
 
             _combatants[i] = _combatants[i] with { Hp = hpBefore - damage };
-            results[i]     = new CombatantTurnResult(damage, hpBefore, _combatants[i].Hp);
+            results[i]     = new CombatantTurnResult(damage, hpBefore, _combatants[i].Hp)
+            {
+                IsCrit = isCrit,
+                IsMiss = isMiss,
+            };
         }
 
         var turnEvent = new TurnEvent(_turnNumber, actorIdx, action, shot.ImpactPoint, results);

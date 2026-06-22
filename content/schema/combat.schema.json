@@ -1,0 +1,50 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://vektram/content/schema/combat.schema.json",
+  "title": "Combat Damage Tuning",
+  "description": "Divisors, caps, and curve constants for the damage formula (Sim.Match.DamageCalculator). The formula SHAPE is adopted from DDTank's MakeDamage (guard/defence multiplicative DR, attack scaling, distance falloff) per ADR-0005; these divisors are externalized here rather than hardcoded in C#. They are first-pass values mirroring DDTank's own constants and will be re-tuned once the equipment/stat system (#4) sets Vektram's stat scales. The C# fallback Sim.Content.CombatTuning.Default mirrors this file and is pinned to it by a test. DELIBERATELY NOT REPLICATED from DDTank: integer truncation of final damage, per-room formula-shape switching (a scalar mode multiplier is used instead and rooms (#5) will supply it), and client-trusted rolls (all crit/miss rolls are server-side seeded SimRandom).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "guardDivisor", "guardReduceCap",
+    "defenceDivisor", "defenceReduceCap",
+    "falloffStrength", "attackFloor", "attackScale",
+    "baseDamageBonusDivisor"
+  ],
+  "properties": {
+    "schemaVersion": { "type": "integer", "const": 1 },
+    "guardDivisor": {
+      "type": "number", "exclusiveMinimum": 0,
+      "description": "guardReduce = (BaseGuard_target - SunderArmor_attacker) / guardDivisor (DDTank 12000)."
+    },
+    "guardReduceCap": {
+      "type": "number", "minimum": 0, "maximum": 1,
+      "description": "Maximum fraction guard reduction can reach (DDTank 0.60)."
+    },
+    "defenceDivisor": {
+      "type": "number", "exclusiveMinimum": 0,
+      "description": "defenceReduce = Defence_target / defenceDivisor (DDTank 80000)."
+    },
+    "defenceReduceCap": {
+      "type": "number", "minimum": 0, "maximum": 1,
+      "description": "Maximum fraction defence reduction can reach (DDTank 0.90)."
+    },
+    "falloffStrength": {
+      "type": "number", "minimum": 0, "maximum": 1,
+      "description": "Blast distance falloff: factor = 1 - falloffStrength * (distance/radius). DDTank used 0.25 (forgiving blasts, max 25% reduction at the edge)."
+    },
+    "attackFloor": {
+      "type": "number", "minimum": 0,
+      "description": "attackFactor = attackFloor + Attack * attackScale (DDTank 0.6)."
+    },
+    "attackScale": {
+      "type": "number", "minimum": 0,
+      "description": "Per-point Attack contribution to attackFactor (DDTank 8e-5)."
+    },
+    "baseDamageBonusDivisor": {
+      "type": "number", "exclusiveMinimum": 0,
+      "description": "Self-scaling term: (1 + BaseDamage / baseDamageBonusDivisor) (DDTank 10000). Set very large to disable."
+    }
+  }
+}

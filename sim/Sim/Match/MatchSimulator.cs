@@ -28,7 +28,8 @@ public sealed class MatchSimulator : IMatchSimulator
         MatchOptions options,
         ITerrainQuery terrain,
         WorldEnvironment environment,
-        uint seed)
+        uint seed,
+        CombatRules? rules = null)
     {
         int n = entries.Count;
 
@@ -44,7 +45,7 @@ public sealed class MatchSimulator : IMatchSimulator
         }
 
         var ctrl = new MatchController(
-            _projectileSim, combatants, teamIds, options, terrain, environment, seed);
+            _projectileSim, combatants, teamIds, options, terrain, environment, seed, rules);
 
         while (!ctrl.IsOver)
         {
