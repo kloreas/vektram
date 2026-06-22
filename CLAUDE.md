@@ -1,5 +1,14 @@
 # Vektram — Repo Conventions
 
+## Revision Philosophy
+
+Vektram is a modern re-implementation built from the DDTank reference source
+(`/ddtank/`, mapped in [docs/ddtank-source-map.md](docs/ddtank-source-map.md)). Stay
+faithful to DDTank's skeleton and familiar feel, but rebuild it on Vektram's clean
+2026 core — deterministic engine-independent `/sim`, server-authoritative resolution,
+data-driven `/content` — never replicating its legacy flaws or client-trusted logic.
+See [ADR-0005](docs/adr/ADR-0005-revision-philosophy.md) for the standing principle.
+
 ## Non-Negotiable Ground Rules
 
 ### 1 — Server Authority Boundary
@@ -97,3 +106,4 @@ Unity projects are opened via Unity Hub — do not run `dotnet build` on `/game`
 | [ADR-0002](docs/adr/ADR-0002-numeric-representation-and-sim-conventions.md) | Numeric Representation & Simulation Conventions |
 | [ADR-0003](docs/adr/ADR-0003-client-trajectory-preview-not-authoritative-playback.md) | Client Sim = Aiming Preview Only; Server Sends Authoritative Trajectory |
 | [ADR-0004](docs/adr/ADR-0004-team-based-match-model.md) | Team-Based Match Model — N-vs-N, Swappable Turn Order, Configurable Friendly Fire |
+| [ADR-0005](docs/adr/ADR-0005-revision-philosophy.md) | Revision Philosophy — Faithful DDTank Skeleton, Modern 2026 Core |
