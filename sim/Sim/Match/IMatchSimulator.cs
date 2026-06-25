@@ -26,11 +26,17 @@ public interface IMatchSimulator
     /// Damage tuning, room/mode multiplier, and element table. When <see langword="null"/>,
     /// <see cref="CombatRules.Default"/> is used.
     /// </param>
+    /// <param name="modeRules">
+    /// The mode's scheduling/win rules (win condition, turn cap, turn order). When
+    /// <see langword="null"/>, <see cref="MatchModeRules.Default"/> is used (last-team-standing,
+    /// the 200-turn cap, round-robin) — reproducing pre-#5 behavior.
+    /// </param>
     MatchResult Run(
         IReadOnlyList<CombatantEntry> combatants,
         MatchOptions options,
         ITerrainQuery terrain,
         WorldEnvironment environment,
         uint seed,
-        CombatRules? rules = null);
+        CombatRules? rules = null,
+        MatchModeRules? modeRules = null);
 }

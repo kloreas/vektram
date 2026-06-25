@@ -285,10 +285,22 @@ calibration), then consumable props, then equipment stat pipeline.
 - No room-type system; no stat scaling by room type.
 
 #### How the revision will use it
-**Add room-type layer.** Define a `RoomConfig` record in `/content` with per-type stat scaling
-tables (matching the DDTank overrides). `MatchController` receives a `RoomConfig` and applies
-scaling at player initialisation. Room type also gates which items and modes are active.
-Matchmaking (player joining, room creation) stays in `/server` (Nakama).
+**Add a data-driven mode layer.** Define modes as data in `/content`. **Naming note (system #5,
+landed):** this shipped as **`modes.json` + `ModeDefinition` + `ModeCatalog`**, *not* the
+`rooms.json`/`RoomConfig` placeholder named earlier here. DDTank's "room" conflates the runtime
+lobby with the ruleset its room-type implied; Vektram splits them — the **ruleset is the mode**
+(`modes.json`), and a **room is the future `/server` lobby** (matchmaking/presence) that merely
+*selects* a mode by id. This also matches ADR-0006 Decision 1 ("game modes are data"). A mode
+carries team structure, the `ModeMultiplier` (the #2 `CombatRules` seam), friendly-fire/self-damage
+flags, turn-order selection, max turns, and — the heart of #5 — a **data-driven win condition**
+evaluated each turn by a pure evaluator whose only switch is keyed by condition *kind*, never by
+mode id. The pure `Sim.Match.ModeSetup` mapper splits a `ModeDefinition` into the engine's existing
+primitives (`MatchOptions` / `CombatRules` / `MatchModeRules`) so the engine stays provenance-free.
+**Deliberately NOT replicated:** the 40-value `eRoomType` C# switch and per-room *formula-shape*
+switching (already reduced to the scalar `ModeMultiplier` in #2). **Deferred:** per-room/per-type
+**stat scaling and floors** (those need level/class → progression #6), per-mode item/equipment
+availability, mode-specific maps/terrain, and the FFA `MatchOutcome` rename (`WinningTeamId` already
+carries the N-team winner). Matchmaking (player joining, room creation) stays in `/server` (Nakama).
 
 ---
 
@@ -418,7 +430,7 @@ Tight couplings in the source to watch:
 | **2** | Damage formula — guard/defence DR + crit | High-value formula upgrade to an existing system; makes combat feel correct immediately | Pure functions in `/sim/Combat/DamageCalc.cs`; server resolves, client displays only |
 | **3** | Item/inventory — consumable props + BallInfo types | Completely absent; needed before any match feels complete; consumables interact with existing turn flow | `/content/items.json` + `/sim` item-event handler; server-authoritative activation |
 | **4** | Equipment stat pipeline | Prerequisite for full damage formula (stats must come from somewhere); unlocks progression too | `/content/equipment.json` + stat assembly in `/sim` at match start |
-| **5** | Room-type config + stat scaling | Unlocks game-mode variety (PVP/ranked/dungeon) and makes test matches comparable to DDTank balance | `/content/rooms.json` + `RoomConfig` consumed by `MatchController` |
+| **5** | Room/mode config + data-driven win conditions | Unlocks game-mode variety (PVP/ranked/dungeon) and makes test matches comparable to DDTank balance | `/content/modes.json` + `ModeCatalog` + `ModeSetup` mapper + `WinConditionEvaluator`, consumed by `MatchController` (per-type stat scaling deferred to #6) |
 | **6** | Progression — XP tables + level stat bonuses | Cannot balance without it but depends on stat pipeline being in place | `/content/progression.json` + level-up hook in `/server` |
 | **7** | Economy — post-match rewards | Depends on match result output (already tracked); reward table is simple once progression exists | `/content/rewards.json` + Nakama post-match handler |
 | **8** | AI: homing shells + NPC brain | Bot quality upgrade; depends on BallInfo params being available; lower priority than core combat | `/sim` `ControlledBomb` variant + `NpcBrain` |

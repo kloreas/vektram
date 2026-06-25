@@ -42,6 +42,10 @@ internal static class Program
     private const MatchOutcome ExpectedOutcome      = MatchOutcome.Team0Wins;
     private const int          ExpectedWinningTeam  = 0;
 
+    // The locked match runs under the explicit DEFAULT mode, selected from /content by id. The
+    // mode must NOT change the authoritative outcome — that is the whole point of #5's demo.
+    private const string DefaultModeId = "elimination";
+
     private static int Main(string[] args)
     {
         bool check = HasFlag(args, "--check");
@@ -53,10 +57,18 @@ internal static class Program
             Console.WriteLine($"Vektram Match Host — Sim v{SimVersion.Current}");
             Console.WriteLine(new string('-', 56));
 
-            LoadAndReportContent(contentRoot);
+            (ModeCatalog modes, CombatTuning tuning, ElementTable elements) = LoadAndReportContent(contentRoot);
 
             Console.WriteLine();
-            MatchResult result = RunLockedMatch();
+
+            // A mode is selected from data and resolved (by the pure /sim mapper) into the engine's
+            // existing primitives — options, combat rules, and scheduling/win rules.
+            ModeDefinition mode = modes.Get(DefaultModeId);
+            (MatchOptions options, CombatRules rules, MatchModeRules modeRules) =
+                ModeSetup.Resolve(mode, tuning, elements);
+            Console.WriteLine($"Selected mode : {mode.Id} ({mode.WinCondition.Kind}, maxTurns {mode.MaxTurns})");
+
+            MatchResult result = RunLockedMatch(options, rules, modeRules);
             PrintResult(result);
 
             bool ok = result.Outcome == ExpectedOutcome && result.WinningTeamId == ExpectedWinningTeam;
@@ -78,7 +90,7 @@ internal static class Program
 
     // ── Content loading (host does I/O; sim parses the supplied text) ──────────────
 
-    private static void LoadAndReportContent(string contentRoot)
+    private static (ModeCatalog Modes, CombatTuning Tuning, ElementTable Elements) LoadAndReportContent(string contentRoot)
     {
         string dataDir = Path.Combine(contentRoot, "data");
         string Read(string fileName) => File.ReadAllText(Path.Combine(dataDir, fileName));
@@ -88,6 +100,7 @@ internal static class Program
         ElementTable     elements  = ElementTable.FromJson(Read("elements.json"));
         ItemCatalog      items     = ItemCatalog.FromJson(Read("items.json"));
         EquipmentCatalog equipment = EquipmentCatalog.FromJson(Read("equipment.json"));
+        ModeCatalog      modes     = ModeCatalog.FromJson(Read("modes.json"));
 
         // Cross-catalog integrity, exercised live outside the test harness.
         items.ValidateBallReferences(balls);
@@ -98,11 +111,14 @@ internal static class Program
         Console.WriteLine($"  equipment.json → {equipment.Count} pieces parsed (modifier stack ready)");
         Console.WriteLine($"  combat.json    → tuning parsed (guardReduceCap {tuning.GuardReduceCap.ToString(CultureInfo.InvariantCulture)})");
         Console.WriteLine($"  elements.json  → table parsed (Fire vs Water advantage {elements.Advantage(Element.Fire, Element.Water).ToString(CultureInfo.InvariantCulture)})");
+        Console.WriteLine($"  modes.json     → {modes.Count} modes parsed ({string.Join(", ", modes.Ids)})");
+
+        return (modes, tuning, elements);
     }
 
     // ── Authoritative match (the sim is the source of truth) ───────────────────────
 
-    private static MatchResult RunLockedMatch()
+    private static MatchResult RunLockedMatch(MatchOptions options, CombatRules rules, MatchModeRules modeRules)
     {
         IProjectileSimulator projectileSim = new ProjectileSimulator();
         var sim = new MatchSimulator(projectileSim);
@@ -116,8 +132,10 @@ internal static class Program
             new CombatantEntry(c1, 1, new FixedActionAgent(NoopShot)),
         };
 
-        // rules: null → CombatRules.Default, exactly as the locked suite scenario runs.
-        return sim.Run(entries, MatchOptions.Default, FlatTerrain.Ground, WorldEnvironment.Default, Seed);
+        // The options/rules/modeRules come from the DEFAULT (elimination) mode, resolved from
+        // /content. For neutral combatants this is bit-for-bit the prior CombatRules.Default path
+        // (mode multiplier 1.0, last-team-standing) — so the authoritative outcome is unchanged.
+        return sim.Run(entries, options, FlatTerrain.Ground, WorldEnvironment.Default, Seed, rules, modeRules);
     }
 
     private static void PrintResult(MatchResult result)

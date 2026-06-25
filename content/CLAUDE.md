@@ -59,6 +59,26 @@ Current files:
   (anti-inflation, ADR-0006); a shipped-file test confirms it loads with valid stats/ops.
   **Deferred:** base profile from class/level (#6), equipment-as-inventory (#7), rune trees,
   costumes (cosmetics never grant power), set bonuses, gear score.
+- `data/modes.json` (+ `schema/modes.schema.json`) — game **modes** (the ruleset a match runs
+  under), per ADR-0006 Decision 1 (modes are DATA, never hardcoded branches). Loaded by
+  `Sim.Content.ModeCatalog.FromJson`. A "room" is the future `/server` lobby that *selects* a mode
+  by id; the ruleset itself is the mode. Each mode carries `teamSizes` (team structure; empty =
+  unconstrained), `modeMultiplier` (folded into the `CombatRules.ModeMultiplier` #2 seam),
+  `friendlyFire`/`selfDamage` (→ `MatchOptions`), `turnOrder` (policy selection; `RoundRobin` only
+  today), `maxTurns` (≤ `SimConstants.MaxTurnsPerMatch` = 200), and a `winCondition` — a
+  discriminated-union-as-data (`{ kind, tiebreak? }`) evaluated each turn by the pure
+  `Sim.Match.WinConditionEvaluator`, whose only switch is keyed by condition *kind* (never mode id).
+  System #5 scope: two modes (`elimination` = last-team-standing, the data twin of pre-#5 behavior;
+  `attrition_timed` = turn-limit tiebreak) and two real win conditions. The C# fallback
+  `ModeDefinition.Default` **mirrors the `elimination` row** and is **pinned to it by a drift-lock
+  test** (`elimination == ModeDefinition.Default`, like `combat.json` ↔ `CombatTuning.Default`).
+  The pure `Sim.Match.ModeSetup` mapper splits a mode into the engine's primitives so the engine
+  stays provenance-free. **Deferred:** per-mode item/equipment availability, economy rewards per
+  room (#7), progression gating of modes (#6), mode-specific maps/terrain, dynamic per-turn
+  environment (ADR-0006 Decision 2), the FFA `MatchOutcome` rename, a second turn-order policy
+  (ADR-0004 agility seam), and further win conditions (hold-a-zone, survive-N-turns,
+  defeat-a-boss-target — each a new `WinConditionKind` + one evaluator case; hold-a-zone also adds
+  a field to `WinEvaluationContext`).
 
 ## Enforced by Export Pipeline (planned)
 

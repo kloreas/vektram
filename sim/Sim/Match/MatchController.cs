@@ -26,6 +26,7 @@ public sealed class MatchController
     private readonly WorldEnvironment     _environment;
     private readonly uint                 _seed;
     private readonly CombatRules          _rules;
+    private readonly MatchModeRules       _modeRules;
     private readonly SimRandom            _rng;
 
     private readonly int[]            _teamIds;
@@ -36,6 +37,7 @@ public sealed class MatchController
     private readonly List<int>        _living;
     private readonly ITurnOrderPolicy _policy;
     private readonly List<TurnEvent>  _log;
+    private readonly double[]         _damageDealtByTeam;  // running tiebreak tally; pure sums, no RNG
 
     private bool        _isOver;
     private MatchResult _result;
@@ -72,6 +74,11 @@ public sealed class MatchController
     /// Shell definitions used to resolve a <see cref="ItemEffectKind.GrantBall"/> effect. When
     /// <see langword="null"/>, a GrantBall use is rejected cleanly.
     /// </param>
+    /// <param name="modeRules">
+    /// The mode's scheduling/win rules (win condition, turn cap, turn-order policy). When
+    /// <see langword="null"/>, <see cref="MatchModeRules.Default"/> is used — last-team-standing,
+    /// the 200-turn safety cap, round-robin order — reproducing pre-#5 behavior bit-for-bit.
+    /// </param>
     public MatchController(
         IProjectileSimulator      projectileSim,
         IReadOnlyList<Combatant>  combatants,
@@ -83,7 +90,8 @@ public sealed class MatchController
         CombatRules?              rules = null,
         IReadOnlyList<Inventory>? inventories = null,
         ItemCatalog?              itemCatalog = null,
-        BallCatalog?              ballCatalog = null)
+        BallCatalog?              ballCatalog = null,
+        MatchModeRules?           modeRules = null)
     {
         int n = combatants.Count;
 
@@ -93,6 +101,7 @@ public sealed class MatchController
         _environment   = environment;
         _seed          = seed;
         _rules         = rules ?? CombatRules.Default;
+        _modeRules     = modeRules ?? MatchModeRules.Default;
         _rng           = new SimRandom(seed);
         _itemCatalog   = itemCatalog;
         _ballCatalog   = ballCatalog;
@@ -110,13 +119,26 @@ public sealed class MatchController
         _living = new List<int>(n);
         for (int i = 0; i < n; i++) _living.Add(i);
 
-        _policy = new RoundRobinTurnOrderPolicy(_teamIds);
+        int teamCount = 0;
+        for (int i = 0; i < n; i++)
+            if (_teamIds[i] + 1 > teamCount) teamCount = _teamIds[i] + 1;
+        _damageDealtByTeam = new double[teamCount];
+
+        _policy = CreateTurnOrderPolicy(_modeRules.TurnOrder, _teamIds);
         _log    = new List<TurnEvent>(SimConstants.MaxTurnsPerMatch);
 
         _turnNumber        = 0;
         _isOver            = false;
         _currentActorIndex = _policy.NextActor(_living);
     }
+
+    private static ITurnOrderPolicy CreateTurnOrderPolicy(TurnOrderPolicyKind kind, int[] teamIds) =>
+        kind switch
+        {
+            TurnOrderPolicyKind.RoundRobin => new RoundRobinTurnOrderPolicy(teamIds),
+            _ => throw new ArgumentOutOfRangeException(
+                     nameof(kind), kind, "Unsupported turn-order policy kind."),
+        };
 
     // ── Queries ───────────────────────────────────────────────────────────────
 
@@ -276,6 +298,12 @@ public sealed class MatchController
             };
         }
 
+        // Running tiebreak tally (pure summation, no RNG): damage this actor dealt to enemies.
+        // Unused by last-team-standing, so the default-mode path stays bit-for-bit deterministic.
+        for (int i = 0; i < n; i++)
+            if (_teamIds[i] != actorTeam)
+                _damageDealtByTeam[actorTeam] += results[i].DamageReceived;
+
         var turnEvent = new TurnEvent(_turnNumber, actorIdx, fire, shot.ImpactPoint, results)
         {
             ItemUse = itemUse,
@@ -289,28 +317,14 @@ public sealed class MatchController
 
         _turnNumber++;
 
-        // Evaluate win condition after updating the living list.
-        var aliveTeams = new HashSet<int>();
-        foreach (int i in _living) aliveTeams.Add(_teamIds[i]);
-
-        if (aliveTeams.Count == 0)
-        {
-            FinishMatch(MatchOutcome.Draw, null);
-        }
-        else if (aliveTeams.Count == 1)
-        {
-            int winnerTeam = -1;
-            foreach (int t in aliveTeams) winnerTeam = t;
-            FinishMatch(winnerTeam == 0 ? MatchOutcome.Team0Wins : MatchOutcome.Team1Wins, winnerTeam);
-        }
-        else if (_turnNumber >= SimConstants.MaxTurnsPerMatch)
-        {
-            FinishMatch(MatchOutcome.MaxTurnsReached, null);
-        }
+        // Win condition is read from data, evaluated after updating the living list. For the
+        // default mode (last-team-standing, cap 200, round-robin) this produces the identical
+        // FinishMatch calls on identical turns as the pre-#5 inlined check.
+        WinEvaluation eval = WinConditionEvaluator.Evaluate(_modeRules.WinCondition, BuildWinContext());
+        if (eval.IsFinished)
+            FinishMatch(eval.Outcome, eval.WinningTeamId);
         else
-        {
             _currentActorIndex = _policy.NextActor(_living);
-        }
 
         return turnEvent;
     }
@@ -367,6 +381,32 @@ public sealed class MatchController
             default:
                 return new TurnItemUse(itemId, def.Effect.Kind, Applied: false, HpRestored: 0.0, GrantedBallId: null);
         }
+    }
+
+    /// <summary>
+    /// Builds the per-team snapshot the pure <see cref="WinConditionEvaluator"/> reads. Alive
+    /// count and remaining HP come from the (already pruned) living list; damage dealt from the
+    /// running tally. All pure sums — no RNG is drawn here.
+    /// </summary>
+    private WinEvaluationContext BuildWinContext()
+    {
+        int teamCount = _damageDealtByTeam.Length;
+        var aliveCount  = new int[teamCount];
+        var hpRemaining = new double[teamCount];
+
+        foreach (int i in _living)
+        {
+            int team = _teamIds[i];
+            aliveCount[team]++;
+            double hp = _combatants[i].Hp;
+            hpRemaining[team] += hp > 0.0 ? hp : 0.0;
+        }
+
+        var standings = new TeamStanding[teamCount];
+        for (int t = 0; t < teamCount; t++)
+            standings[t] = new TeamStanding(t, aliveCount[t], hpRemaining[t], _damageDealtByTeam[t]);
+
+        return new WinEvaluationContext(_turnNumber, _modeRules.MaxTurns, standings);
     }
 
     private void FinishMatch(MatchOutcome outcome, int? winningTeamId)

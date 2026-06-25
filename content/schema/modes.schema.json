@@ -1,0 +1,86 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://vektram/content/schema/modes.schema.json",
+  "title": "Mode Catalog",
+  "description": "Game modes expressed as DATA per ADR-0006 Decision 1 — many distinct original modes are data rows, never hardcoded branches (DDTank's 40+ eRoomType enum that switched stat scaling and damage-formula SHAPE at Player.Reset/MakeDamage is deliberately NOT replicated as a C# switch; see docs/ddtank-source-map.md section 2.4). A 'room' in DDTank conflated the runtime lobby with the ruleset its room-type implied; here the ruleset is the MODE, and a room (the future /server lobby — matchmaking/presence, OUT of scope) merely selects a mode by id. Loaded by Sim.Content.ModeCatalog.FromJson; hosts read the file, /sim parses the text. The match engine never consumes a mode directly: the pure Sim.Match.ModeSetup mapper splits each mode into the engine's existing provenance-free primitives — MatchOptions (friendlyFire/selfDamage), CombatRules (folding in modeMultiplier, the #2 ModeMultiplier seam), and MatchModeRules (winCondition/maxTurns/turnOrder). SCOPE (system #5): two shipped modes (elimination = last-team-standing, the data twin of pre-#5 behavior, pinned to ModeDefinition.Default by a drift-lock test; attrition_timed = turn-limit tiebreak). DEFERRED: matchmaking/lobbies/networking (/server), per-mode item/equipment availability, economy rewards per room (#7), progression gating of modes (#6), mode-specific maps/terrain, dynamic per-turn environment (ADR-0006 Decision 2), the FFA MatchOutcome rename (WinningTeamId already carries the N-team winner), a second turn-order policy (ADR-0004 agility seam), and further win conditions (hold-a-zone, survive-N-turns, defeat-a-boss-target) which extend WinConditionKind + one evaluator case.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "modes"],
+  "properties": {
+    "schemaVersion": { "type": "integer", "const": 1 },
+    "modes": {
+      "type": "array",
+      "items": { "$ref": "#/definitions/mode" }
+    }
+  },
+  "definitions": {
+    "mode": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id", "displayName", "teamSizes", "modeMultiplier",
+        "friendlyFire", "selfDamage", "turnOrder", "maxTurns", "winCondition"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Stable lookup key. Must be unique within the catalog. A room selects a mode by this id."
+        },
+        "displayName": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Display-only label. Has no rule effect."
+        },
+        "teamSizes": {
+          "type": "array",
+          "items": { "type": "integer", "minimum": 1 },
+          "description": "Intended team structure: array length is the team count, each entry that team's roster size ([1,1]=1v1, [2,2]=2v2, [1,1,1,1]=FFA-4). EMPTY = unconstrained (any roster accepted; the default mode uses this). Validate-only via ModeDefinition.AcceptsRoster — roster construction is matchmaking and stays in the host."
+        },
+        "modeMultiplier": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "description": "Damage scalar folded into CombatRules.ModeMultiplier (1.0 = no adjustment). The data form of DDTank's per-room damage divisor (e.g. Match room /3) reduced to a scalar in #2 — not per-room formula-shape switching. Anti-inflation (ADR-0006): keep near 1.0."
+        },
+        "friendlyFire": {
+          "type": "boolean",
+          "description": "Maps to MatchOptions.FriendlyFire — allies in the blast take damage when true."
+        },
+        "selfDamage": {
+          "type": "boolean",
+          "description": "Maps to MatchOptions.SelfDamage — the shooter is hit by its own blast when true. Independent of friendlyFire (ADR-0004)."
+        },
+        "turnOrder": {
+          "type": "string",
+          "enum": ["RoundRobin"],
+          "description": "Selects the turn-order policy. RoundRobin only today; the data-driven selection seam (the ADR-0004 agility policy lands as a new value + one mapping case)."
+        },
+        "maxTurns": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 200,
+          "description": "Per-mode turn cap. Must be <= SimConstants.MaxTurnsPerMatch (200), the engine safety ceiling against infinite loops. The default mode uses 200."
+        },
+        "winCondition": { "$ref": "#/definitions/winCondition" }
+      }
+    },
+    "winCondition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind"],
+      "description": "Discriminated union as data: a kind plus the params that kind needs. The match controller evaluates it each turn through the pure Sim.Match.WinConditionEvaluator — the ONLY switch keyed by condition KIND, never by mode id, so many modes reuse a few evaluators. A future kind adds its own params here.",
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": ["LastTeamStanding", "TurnLimitTiebreak"],
+          "description": "LastTeamStanding: last team with a living combatant wins (pre-#5 behavior; also expresses defeat-a-boss-target with the boss as its own team id). TurnLimitTiebreak: same, but the turn cap with >=2 teams alive is decided by 'tiebreak' instead of a no-result."
+        },
+        "tiebreak": {
+          "type": "string",
+          "enum": ["TotalHpRemaining", "TotalDamageDealt"],
+          "description": "Required for TurnLimitTiebreak, forbidden for LastTeamStanding. The metric that picks the winner at the turn cap (argmax over alive teams; a tie is a Draw)."
+        }
+      }
+    }
+  }
+}

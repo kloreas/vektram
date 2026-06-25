@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "modes": [
+    {
+      "id": "elimination",
+      "displayName": "Elimination",
+      "teamSizes": [],
+      "modeMultiplier": 1.0,
+      "friendlyFire": true,
+      "selfDamage": true,
+      "turnOrder": "RoundRobin",
+      "maxTurns": 200,
+      "winCondition": { "kind": "LastTeamStanding" }
+    },
+    {
+      "id": "attrition_timed",
+      "displayName": "Timed Attrition",
+      "teamSizes": [2, 2],
+      "modeMultiplier": 1.0,
+      "friendlyFire": false,
+      "selfDamage": true,
+      "turnOrder": "RoundRobin",
+      "maxTurns": 60,
+      "winCondition": { "kind": "TurnLimitTiebreak", "tiebreak": "TotalHpRemaining" }
+    }
+  ]
+}
