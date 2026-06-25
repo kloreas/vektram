@@ -9,6 +9,14 @@ faithful to DDTank's skeleton and familiar feel, but rebuild it on Vektram's cle
 data-driven `/content` — never replicating its legacy flaws or client-trusted logic.
 See [ADR-0005](docs/adr/ADR-0005-revision-philosophy.md) for the standing principle.
 
+## Design Pillars
+
+Three locked design pillars constrain every future system: **game modes are data in
+`/content`, never hardcoded branches**; the **match environment is dynamic** (wind/weather
+may change per turn, not fixed at start); and **balance is anti-inflation** (small readable
+numbers, deep-but-simple, variety over vertical grind, cosmetics never grant power).
+See [ADR-0006](docs/adr/ADR-0006-design-pillars.md).
+
 ## Non-Negotiable Ground Rules
 
 ### 1 — Server Authority Boundary
@@ -107,3 +115,4 @@ Unity projects are opened via Unity Hub — do not run `dotnet build` on `/game`
 | [ADR-0003](docs/adr/ADR-0003-client-trajectory-preview-not-authoritative-playback.md) | Client Sim = Aiming Preview Only; Server Sends Authoritative Trajectory |
 | [ADR-0004](docs/adr/ADR-0004-team-based-match-model.md) | Team-Based Match Model — N-vs-N, Swappable Turn Order, Configurable Friendly Fire |
 | [ADR-0005](docs/adr/ADR-0005-revision-philosophy.md) | Revision Philosophy — Faithful DDTank Skeleton, Modern 2026 Core |
+| [ADR-0006](docs/adr/ADR-0006-design-pillars.md) | Design Pillars — Data-Driven Modes, Dynamic Environment, Anti-Inflation Balance |
