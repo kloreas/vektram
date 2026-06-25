@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 1,
+  "equipment": [
+    {
+      "id": "weapon_recruit_cannon",
+      "displayName": "Recruit Cannon",
+      "slot": "Weapon",
+      "modifiers": [
+        { "stat": "Attack", "op": "Flat", "value": 2500.0 }
+      ]
+    },
+    {
+      "id": "armor_recruit_plate",
+      "displayName": "Recruit Plate",
+      "slot": "Armor",
+      "modifiers": [
+        { "stat": "Defense", "op": "Flat", "value": 4000.0 },
+        { "stat": "BaseGuard", "op": "Flat", "value": 600.0 },
+        { "stat": "MaxHp", "op": "Flat", "value": 50.0 }
+      ]
+    },
+    {
+      "id": "accessory_keen_charm",
+      "displayName": "Keen Charm",
+      "slot": "Accessory",
+      "modifiers": [
+        { "stat": "CritChance", "op": "Flat", "value": 0.05 },
+        { "stat": "CritMultiplier", "op": "Flat", "value": 0.10 }
+      ]
+    }
+  ]
+}

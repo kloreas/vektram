@@ -62,7 +62,7 @@ dotnet test sim/Sim.sln
 
 | Type | Kind | Purpose |
 |------|------|---------|
-| `CombatantStats` | `readonly record struct` | **Effective/final** stats the damage formula consumes (it never knows their origin; #4 equipment assembles them). 3-arg ctor `MaxHp, DamageModifier, Defense` preserved; neutral-default `init` props: `Attack`, `SunderArmor`, `BaseGuard`, `CritChance`, `CritMultiplier`, `Dodge`, `Element`, `ElementPower`, `ElementResist` |
+| `CombatantStats` | `readonly record struct` | **Effective/final** stats the damage formula consumes (it never knows their origin; the #4 `Sim.Stats` stack assembles them). 3-arg ctor `MaxHp, DamageModifier, Defense` preserved; neutral-default `init` props: `Attack`, `SunderArmor`, `BaseGuard`, `CritChance`, `CritMultiplier`, `Dodge`, `Element`, `ElementPower`, `ElementResist`. Shape **unchanged by #4** — modifiers target these existing channels. |
 | `Combatant` | `readonly record struct` | Position (on terrain surface), Hp, Stats; `IsDefeated` when Hp ≤ 0 |
 | `CombatantEntry` | `readonly record struct` | Roster slot: Combatant + TeamId + IAgent |
 | `Weapon` | `readonly record struct` | ProjectileSpeed, BaseDamage, BlastRadius — data only |
@@ -110,14 +110,35 @@ model + a `<Domain>Catalog` with a **pure `FromJson(string)`** parser + a
 | `CombatTuning` | `readonly record struct` | Damage formula divisors/caps/curves (guard/defence divisors + caps, falloffStrength, attackFloor/Scale, baseDamageBonusDivisor). `FromJson(string)`. `CombatTuning.Default` **mirrors `combat.json`** and is **pinned to it by a drift-lock test**. |
 | `ElementTable` | `sealed class` | Data-driven element advantage matrix. `FromJson(string)`, `Advantage(attacker, defender)` (unspecified pairs → 1.0 = pure DDTank additive). `ElementTable.Neutral` = all 1.0. |
 | `CombatDataException` | `sealed class` | Clear error for malformed/invalid combat tuning or element data. |
-| `ItemCategory` | `enum` | `BallGrant`, `Consumable` (open; equipment categories = #4). |
-| `ItemEffectKind` | `enum` | `GrantBall`, `RestoreHp` (open; stat/buff + equip effects = #4). |
+| `ItemCategory` | `enum` | `BallGrant`, `Consumable`, `Equipment` (the last is a #4 zero-cost ownership tag — equipment stat data lives in `EquipmentCatalog`, not an `ItemEffect`; nothing authors an item of this category yet). |
+| `ItemEffectKind` | `enum` | `GrantBall`, `RestoreHp` (unchanged by #4 — equipment grants stats through the modifier stack, not a use-effect; stat/buff effects still open). |
 | `ItemEffect` | `readonly record struct` | Data-defined effect: `Kind` + `BallId` (GrantBall) / `Amount` (RestoreHp). No item logic in C#. |
 | `ItemDefinition` | `readonly record struct` | One item: `Id`, `DisplayName`, `Category`, `MaxStack`, `Effect`. |
 | `ItemCatalog` | `sealed class` | Immutable id→`ItemDefinition` registry. `FromJson`, `Get`/`TryGet`, `Ids`, `Count`. Validates shape, unique ids, `maxStack≥1`, effect fields. **`ValidateBallReferences(BallCatalog)`** = optional fail-fast cross-catalog check (resolution-time `Get` also throws on dangling refs). |
 | `ItemDataException` | `sealed class` | Clear error for malformed/invalid/missing item data; messages name id/field/index. |
+| `EquipmentSlot` | `enum` | First-pass body slots: `Weapon`, `Armor`, `Accessory`. More slots (mount/pet/second weapon) added later. |
+| `EquipmentDefinition` | `readonly record struct` | One equipment piece: `Id`, `DisplayName`, `Slot`, `Modifiers` (`IReadOnlyList<StatModifier>`). **Custom element-wise equality** over `Modifiers` (like `TurnEvent`) so same text → value-equal. Grants stats via the stack, not a use-effect. |
+| `EquipmentCatalog` | `sealed class` | Immutable id→`EquipmentDefinition` registry. `FromJson` (pure, non-reflective `JsonDocument`, IL2CPP-safe), `Get`/`TryGet`, `Ids`, `Count`. Validates schema version, required/empty fields, unique ids, known `slot`/`stat`/`op`, numeric `value`. **Stamps** each modifier's `Source` = (`Equipment`, piece id) — provenance is derived, not authored. |
+| `EquipmentDataException` | `sealed class` | Clear error for malformed/invalid/missing equipment data; messages name id/field/index. |
 
-Canonical data: `content/data/{balls,combat,elements,items}.json` (+ matching `content/schema/*.schema.json`).
+Canonical data: `content/data/{balls,combat,elements,items,equipment}.json` (+ matching `content/schema/*.schema.json`).
+
+### Stats (modifier stack — `Sim.Stats`, system #4)
+
+The layer that **assembles** effective `CombatantStats` from a base block + source-tagged
+modifiers — pure, deterministic, resolved at **match setup** (not in the turn loop), so the
+match/damage code keeps consuming finished stats and stays untouched.
+
+| Type | Kind | Purpose |
+|------|------|---------|
+| `StatKind` | `enum` | The 11 numeric channels of `CombatantStats` (MaxHp…ElementResist). `Element` is absent — it's assigned, not stacked. Contiguous from 0; `StatAssembler.ChannelCount` pins the count (guard test). |
+| `ModifierOp` | `enum` | `Flat`, `AdditivePercent`, `MultiplicativePercent` — combined in that fixed order. |
+| `ModifierSourceType` | `enum` | `Base`, `Equipment`, `Rune`, `Costume`, `Buff`. Tags provenance so a source is auditable/removable. Equipment is the only fully-wired source in #4; Rune/Costume/Buff are seams. |
+| `ModifierSource` | `readonly record struct` | `Type` + `SourceId`. Dropping all modifiers with one `SourceId` and re-assembling reproduces the without-that-source result (unequip / expiring-buff seam). |
+| `StatModifier` | `readonly record struct` | `Stat` + `Op` + `Value` + `Source`. Percent ops take a fraction (`0.10` = 10%). |
+| `StatAssembler` | `static class` | **Pure** `Assemble(CombatantStats base, IReadOnlyList<StatModifier>) → CombatantStats`. Per channel: `(base + ΣFlat) × (1 + ΣAdd%) × Π(1+Mult%)`. Accumulates in caller order (deterministic; Σ/Π order-independent for exact operands). Clamps: CritChance/Dodge → [0,1], MaxHp floored > 0, rest floored at 0. Element passed through. No RNG/IO/Unity. |
+| `Loadout` | `readonly record struct` | `BaseStats` + `EquippedIds` + `Runes` (modifier seam) + `CosmeticId` (display-only, zero power). `Loadout.Bare(base)` = no gear. Gather order: equipped ids → each piece's modifiers → runes. |
+| `LoadoutResolver` | `static class` | **Pure** `Resolve(in Loadout, EquipmentCatalog) → CombatantStats`. Gathers modifiers in fixed order, calls `StatAssembler`. Costume ignored (cosmetic pillar). Unknown id → `EquipmentDataException`. Called by host/controller setup, never in the turn loop. |
 
 ### Items (runtime state — `Sim.Items`, not authored content)
 
@@ -131,7 +152,7 @@ Server-authoritative player-held state and the pure seams that resolve a data-de
 | `ItemUseOutcome` | `readonly record struct` | `Success` + resulting `Inventory` (reduced on success, unchanged on failure). |
 | `ItemEffects` | `static class` | Pure resolution seams: `ResolveGrantedBall(BallCatalog, ItemEffect)` → `BallDefinition`; `ResolveRestoredHp(currentHp, maxHp, amount)` → clamped HP (no overheal). |
 
-**#3/#4 boundary:** #3 (complete) = item data + catalog + inventory + effect-resolution seams **+ item use wired into the live turn** (`MatchController.ResolveTurn(TurnAction)` applies `GrantBall`/`RestoreHp` via the pure `ItemEffects` seams; inventory is controller-side server-authoritative state and never leaks into the pure `DamageCalculator`). #4 = equipment categories and the base+equip+rune+costume+buff modifier-stack that **assembles** effective `CombatantStats`. Item effects beyond `GrantBall`/`RestoreHp` (stat/buff, equip) are #4. Bots stay fire-only (`IAgent.ChooseAction → FireAction` unchanged); bot item-use is a future knob.
+**#3/#4 boundary:** #3 (complete) = item data + catalog + inventory + effect-resolution seams **+ item use wired into the live turn** (`MatchController.ResolveTurn(TurnAction)` applies `GrantBall`/`RestoreHp` via the pure `ItemEffects` seams; inventory is controller-side server-authoritative state and never leaks into the pure `DamageCalculator`). **#4 (done)** = the `Sim.Stats` modifier stack + `EquipmentCatalog`/`equipment.json` + `Loadout`/`LoadoutResolver` that **assemble** effective `CombatantStats` at match setup. `CombatantStats` shape was **unchanged** (zero new fields) so the formula/controller/simulator are untouched and the prior 173 stayed green. **Deferred from #4** (each re-attaches at a named seam): base profile from class/level → progression #6 (`Loadout.BaseStats`); equipment-as-ownable-inventory → economy #7 (`ItemCategory.Equipment`); full rune trees → next slice (`Loadout.Runes` + a future `RuneCatalog`); set bonuses → post-gather source in `LoadoutResolver`; gear score → pure read over resolved modifiers (display only); element-granting weapons + mid-match buff re-assembly → noted seams. Bots stay fire-only; bot item-use/loadouts are a future knob.
 
 **Damage model (system #2, ADR-0005):** the formula *shape* is adopted from DDTank's `MakeDamage` (multiplicative guard/defence DR with caps, attack scaling with a floor, a forgiving distance falloff, an additive element layer + modern advantage multiplier, a crit multiplier). Divisors/curves live in `/content`, not C#. **Deliberately not replicated:** integer truncation of final damage, per-room formula-*shape* switching (a scalar `ModeMultiplier` is used instead; rooms #5 supply it), and client-trusted rolls (all crit/miss rolls are server-side seeded `SimRandom`). **Deferred:** separate magic layer, `ExtraDamage`/`CulturalAdd` buff multipliers, and pet sigmoid DR.
 
@@ -153,8 +174,11 @@ sim/
     Content/      ShellType, BallDefinition, BallCatalog, BallDataException,
                   Element, CombatTuning, ElementTable, CombatDataException,
                   ItemCategory, ItemEffectKind, ItemEffect, ItemDefinition,
-                  ItemCatalog, ItemDataException
+                  ItemCatalog, ItemDataException, EquipmentSlot,
+                  EquipmentDefinition, EquipmentCatalog, EquipmentDataException
     Items/        Inventory, ItemUseOutcome, ItemEffects
+    Stats/        StatKind, ModifierOp, ModifierSourceType, ModifierSource,
+                  StatModifier, StatAssembler, Loadout, LoadoutResolver
     Ai/           BotDifficulty, BotAgent
   Sim.Tests/
     Projectile/   ProjectileSimulatorTests (10), ShellPhysicsTests (6 — incl.
@@ -171,10 +195,16 @@ sim/
     Content/      BallCatalogTests, BallsContentFileTests (validates shipped balls.json),
                   CombatTuningTests (incl. combat.json == CombatTuning.Default drift-lock),
                   ElementTableTests, ItemCatalogTests,
-                  ItemsContentFileTests (validates shipped items.json + ball refs)
+                  ItemsContentFileTests (validates shipped items.json + ball refs),
+                  EquipmentCatalogTests (14 — parse/validation/equality),
+                  EquipmentContentFileTests (validates shipped equipment.json)
     Items/        InventoryTests, ItemEffectsTests
+    Stats/        StatAssemblerTests (16 — order/determinism/clamp/source-removal/
+                  rune+equip stack/Element passthrough/ChannelCount guard),
+                  LoadoutResolverTests (9 — assembly seam, cosmetic-zero-power,
+                  unknown-id throw, feeds DamageCalculator)
     Ai/           BotAgentTests (8)
-  Sim.sln          (173 tests green)
+  Sim.sln          (213 tests green)
 ```
 
 ## What Belongs Here

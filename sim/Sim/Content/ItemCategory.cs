@@ -11,4 +11,11 @@ public enum ItemCategory
 
     /// <summary>Single-use item applied for an immediate effect (e.g. heal).</summary>
     Consumable,
+
+    /// <summary>
+    /// An ownable equipment piece. A zero-cost forward tag: the stat data lives in
+    /// <see cref="EquipmentCatalog"/>, not in an <see cref="ItemEffect"/>. Inventory ownership
+    /// of equipment is wired by economy (#7); nothing in #4 authors an item of this category.
+    /// </summary>
+    Equipment,
 }

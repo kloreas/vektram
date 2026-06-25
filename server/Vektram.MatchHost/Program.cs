@@ -83,19 +83,21 @@ internal static class Program
         string dataDir = Path.Combine(contentRoot, "data");
         string Read(string fileName) => File.ReadAllText(Path.Combine(dataDir, fileName));
 
-        BallCatalog  balls    = BallCatalog.FromJson(Read("balls.json"));
-        CombatTuning tuning   = CombatTuning.FromJson(Read("combat.json"));
-        ElementTable elements = ElementTable.FromJson(Read("elements.json"));
-        ItemCatalog  items    = ItemCatalog.FromJson(Read("items.json"));
+        BallCatalog      balls     = BallCatalog.FromJson(Read("balls.json"));
+        CombatTuning     tuning    = CombatTuning.FromJson(Read("combat.json"));
+        ElementTable     elements  = ElementTable.FromJson(Read("elements.json"));
+        ItemCatalog      items     = ItemCatalog.FromJson(Read("items.json"));
+        EquipmentCatalog equipment = EquipmentCatalog.FromJson(Read("equipment.json"));
 
         // Cross-catalog integrity, exercised live outside the test harness.
         items.ValidateBallReferences(balls);
 
         Console.WriteLine($"Content: {contentRoot}");
-        Console.WriteLine($"  balls.json    → {balls.Count} shells parsed");
-        Console.WriteLine($"  items.json    → {items.Count} items parsed (ball refs validated)");
-        Console.WriteLine($"  combat.json   → tuning parsed (guardReduceCap {tuning.GuardReduceCap.ToString(CultureInfo.InvariantCulture)})");
-        Console.WriteLine($"  elements.json → table parsed (Fire vs Water advantage {elements.Advantage(Element.Fire, Element.Water).ToString(CultureInfo.InvariantCulture)})");
+        Console.WriteLine($"  balls.json     → {balls.Count} shells parsed");
+        Console.WriteLine($"  items.json     → {items.Count} items parsed (ball refs validated)");
+        Console.WriteLine($"  equipment.json → {equipment.Count} pieces parsed (modifier stack ready)");
+        Console.WriteLine($"  combat.json    → tuning parsed (guardReduceCap {tuning.GuardReduceCap.ToString(CultureInfo.InvariantCulture)})");
+        Console.WriteLine($"  elements.json  → table parsed (Fire vs Water advantage {elements.Advantage(Element.Fire, Element.Water).ToString(CultureInfo.InvariantCulture)})");
     }
 
     // ── Authoritative match (the sim is the source of truth) ───────────────────────

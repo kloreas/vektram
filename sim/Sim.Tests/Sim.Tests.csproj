@@ -40,5 +40,8 @@
     <None Include="..\..\content\data\items.json" Link="content\items.json">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
+    <None Include="..\..\content\data\equipment.json" Link="content\equipment.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
   </ItemGroup>
 </Project>

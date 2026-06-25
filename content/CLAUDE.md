@@ -46,8 +46,19 @@ Current files:
   `balls.json` id) and `RestoreHp` (flat amount). Item use is server-authoritative; the client
   only displays. `ItemCatalog.ValidateBallReferences(BallCatalog)` fail-fast checks `GrantBall`
   ids against `balls.json`. No `CombatTuning.Default`-style C# mirror, so no drift-lock test;
-  a shipped-file test instead confirms it loads and its ball refs resolve. **Deferred to #4:**
-  equipment categories + the modifier-stack stat assembly; heal strengthen-scaling.
+  a shipped-file test instead confirms it loads and its ball refs resolve. **Deferred (heal
+  strengthen-scaling); equipment moved to its own file below.**
+- `data/equipment.json` (+ `schema/equipment.schema.json`) — equipment pieces and the stat
+  modifiers they grant (loaded by `Sim.Content.EquipmentCatalog.FromJson`). System #4 scope:
+  three slots (`Weapon`/`Armor`/`Accessory`), one first-pass piece each. Each modifier is
+  `{stat, op, value}`; `op` ∈ `Flat`/`AdditivePercent`/`MultiplicativePercent`, combined in
+  that fixed order by `Sim.Stats.StatAssembler`. Provenance (source) is **stamped by the
+  parser** (`Equipment` + piece id), not authored. Resolved into effective `CombatantStats` at
+  match **setup** by `Sim.Stats.LoadoutResolver`, never in the turn loop. Values are **first-pass
+  tuning, calibrated to `combat.json` divisors** so effects read as small percentages
+  (anti-inflation, ADR-0006); a shipped-file test confirms it loads with valid stats/ops.
+  **Deferred:** base profile from class/level (#6), equipment-as-inventory (#7), rune trees,
+  costumes (cosmetics never grant power), set bonuses, gear score.
 
 ## Enforced by Export Pipeline (planned)
 

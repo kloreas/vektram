@@ -1,0 +1,70 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://vektram/content/schema/equipment.schema.json",
+  "title": "Equipment Catalog",
+  "description": "Equipment pieces and the stat modifiers they grant, expressed as DATA per ADR-0005 (DDTank equip effects — AddBombEquipEffect/AddGuardEquipEffect — were flat stat adds applied at Player.Reset; here they are data, not code). Loaded by Sim.Content.EquipmentCatalog.FromJson; hosts read the file, /sim parses the text. Equipment grants stats through the shared modifier stack (Sim.Stats.StatAssembler), resolved into effective CombatantStats at match SETUP by Sim.Stats.LoadoutResolver — never inside the turn loop. Each modifier's provenance (source) is stamped by the parser as Equipment + the piece id, so designers author only stat/op/value. SCOPE (system #4): three slots (Weapon/Armor/Accessory) and a first-pass piece per slot. Modifier ops are flat/additive%/multiplicative% combined in that fixed order. Values are FIRST-PASS TUNING, calibrated to combat.json divisors so effects read as small percentages (BaseGuard 600 -> ~5% guard DR at guardDivisor 12000; Defense 4000 -> 5% defence DR at defenceDivisor 80000; Attack 2500 -> +0.20 attackFactor at attackScale 0.00008) per the anti-inflation pillar (ADR-0006); iterate later. DEFERRED: base stat profile from class/level (progression #6), equipment as ownable inventory (economy #7), rune trees, costumes (cosmetics never grant power), set bonuses, gear score, element-granting weapons.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "equipment"],
+  "properties": {
+    "schemaVersion": { "type": "integer", "const": 1 },
+    "equipment": {
+      "type": "array",
+      "items": { "$ref": "#/definitions/piece" }
+    }
+  },
+  "definitions": {
+    "piece": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "displayName", "slot", "modifiers"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Stable lookup key. Must be unique within the catalog."
+        },
+        "displayName": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Display-only label. Has no stat effect."
+        },
+        "slot": {
+          "type": "string",
+          "enum": ["Weapon", "Armor", "Accessory"],
+          "description": "Body slot. First-pass set only; more slots arrive as the system grows."
+        },
+        "modifiers": {
+          "type": "array",
+          "description": "Stat modifiers granted by this piece, applied in authored order.",
+          "items": { "$ref": "#/definitions/modifier" }
+        }
+      }
+    },
+    "modifier": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["stat", "op", "value"],
+      "properties": {
+        "stat": {
+          "type": "string",
+          "enum": [
+            "MaxHp", "DamageModifier", "Defense", "Attack", "SunderArmor",
+            "BaseGuard", "CritChance", "CritMultiplier", "Dodge",
+            "ElementPower", "ElementResist"
+          ],
+          "description": "The CombatantStats channel this modifier targets. (Element is assigned, not stacked, so it is absent.)"
+        },
+        "op": {
+          "type": "string",
+          "enum": ["Flat", "AdditivePercent", "MultiplicativePercent"],
+          "description": "How it combines. Fixed order: Flat -> AdditivePercent -> MultiplicativePercent. AdditivePercent/MultiplicativePercent values are fractions (0.10 = 10%)."
+        },
+        "value": {
+          "type": "number",
+          "description": "Magnitude. Flat is added directly; percent ops are fractions. First-pass tuning."
+        }
+      }
+    }
+  }
+}
