@@ -10,8 +10,9 @@ namespace Sim.Items;
 /// content data.
 /// </summary>
 /// <remarks>
-/// System #3 stops at resolution: applying the outcome inside a live turn (an item-use action
-/// in the match loop) and the equipment / modifier-stack stat assembly belong to system #4.
+/// These seams stay pure; <c>MatchController.ResolveTurn(TurnAction)</c> (system #3) consumes
+/// them to apply an item-use inside a live turn. The equipment / modifier-stack stat assembly
+/// belongs to system #4.
 /// </remarks>
 public static class ItemEffects
 {

@@ -67,13 +67,15 @@ dotnet test sim/Sim.sln
 | `CombatantEntry` | `readonly record struct` | Roster slot: Combatant + TeamId + IAgent |
 | `Weapon` | `readonly record struct` | ProjectileSpeed, BaseDamage, BlastRadius — data only |
 | `FireAction` | `readonly record struct` | AngleDegrees, Speed (separate from weapon for charge mechanics), Weapon |
+| `TurnAction` | `readonly record struct` | A turn's submission: `Fire` (FireAction) + optional `ItemId` (string?). `ItemId == null` = fire-only (bit-identical to the FireAction path). The seam by which an actor uses one item **before** its shot. |
+| `TurnItemUse` | `readonly record struct` | Logged on `TurnEvent.ItemUse` (nullable): `ItemId`, `Kind` (`ItemEffectKind?`, null when id unknown), `Applied`, `HpRestored`, `GrantedBallId`. A rejected use is logged with `Applied=false`. |
 | `MatchOptions` | `readonly record struct` | FriendlyFire (ally blast damage on/off), SelfDamage (self blast damage on/off); both default true |
 | `MatchState` | `readonly record struct` | Self, Allies (living teammates), Enemies (living opponents), Terrain, Environment, TurnNumber |
 | `DamageInputs` | `readonly record struct` | Resolved inputs to one damage calc: impact/target positions, BaseDamage/BlastRadius, attacker+defender stats, `CombatTuning`, `ModeMultiplier`, `ElementAdvantage`, `IsCrit`, `IsMiss`. RNG + table lookups are resolved by the caller so the formula stays pure. |
 | `DamageResult` | `readonly record struct` | FinalDamage + breakdown for UI/replay: IsMiss, IsCrit, Falloff, GuardReduce, DefenceReduce, AttackFactor, ElementBonus, ModeMultiplier |
 | `CombatRules` | `readonly record struct` | Match combat config from `/content`: `Tuning`, `ModeMultiplier` (room/mode seam for #5), `Elements` (nullable `ElementTable`). `CombatRules.Default` = engine fallback. |
 | `CombatantTurnResult` | `readonly record struct` | DamageReceived, HpBefore, HpAfter (+ `IsCrit`, `IsMiss` init props, default false) for one combatant in one turn |
-| `TurnEvent` | `readonly record struct` | Full turn record: actor index, action, impact point, CombatantResults list (indexed by roster position); custom Equals for element-wise list comparison |
+| `TurnEvent` | `readonly record struct` | Full turn record: actor index, action, impact point, CombatantResults list (indexed by roster position), nullable `ItemUse` (init prop); custom Equals for element-wise list comparison (now also compares `ItemUse`) |
 | `MatchOutcome` | `enum` | Team0Wins, Team1Wins, Draw (all teams KO in same turn), MaxTurnsReached |
 | `MatchResult` | `readonly struct` | Outcome, WinningTeamId (nullable int), TurnCount, Log |
 | `IAgent` | interface | `ChooseAction(MatchState)` — implemented by human adapters and AI bots |
@@ -81,7 +83,7 @@ dotnet test sim/Sim.sln
 | `RoundRobinTurnOrderPolicy` | `sealed class` | Default policy: teams alternate, living members cycle within each team in roster order |
 | `IMatchSimulator` | interface | `Run(IReadOnlyList<CombatantEntry>, MatchOptions, ..., seed, CombatRules? rules = null)` — deterministic, seeded |
 | `DamageCalculator` | `static class` | **Pure** `Compute(in DamageInputs) → DamageResult`. DDTank-shaped formula: attackFactor × baseScale × falloff × (1−guardReduce) × (1−defenceReduce) × DamageModifier × ModeMultiplier × crit, + element bonus, floored at 0. Divisors/caps/curves come from `CombatTuning` (data). No RNG, no table lookups inside. |
-| `MatchController` | `sealed class` | **Steppable, agent-agnostic turn driver.** Ctor takes combatants + teamIds (no agents) + optional `CombatRules? rules`. Owns a `SimRandom(seed)` for crit/miss rolls — **rolls are drawn only when `Dodge>0` / `CritChance>0`, so neutral-stat matches consume no RNG and stay bit-for-bit deterministic.** Does the seeded rolls + element-advantage lookup, then calls the pure `DamageCalculator`. API: `IsOver`, `CurrentActorIndex`, `CurrentState`, `ResolveTurn(FireAction)`, `Result`. |
+| `MatchController` | `sealed class` | **Steppable, agent-agnostic turn driver.** Ctor takes combatants + teamIds (no agents) + optional `CombatRules? rules` + optional item deps (`inventories`, `itemCatalog`, `ballCatalog`; all null ⇒ no-items mode = pre-item behavior). Owns a `SimRandom(seed)` for crit/miss rolls — **rolls are drawn only when `Dodge>0` / `CritChance>0`, so neutral-stat matches consume no RNG and stay bit-for-bit deterministic.** Does the seeded rolls + element-advantage lookup, then calls the pure `DamageCalculator`. **Item use** (system #3) is server-authoritative + deterministic (no RNG): `ResolveTurn(TurnAction)` optionally consumes one item before the shot — `RestoreHp` heals the actor (clamped, pre-shot, so a self-blast hits post-heal HP); `GrantBall` swaps the shell so **both** trajectory (ball `ShellPhysics` via 4-arg `Simulate`) **and** damage (ball `BaseDamage`/`BlastRadius`) come from the same ball that turn. Unavailable/unknown items are **rejected cleanly** (no effect, inventory unchanged, turn fires fire-only, logged `Applied=false`); no mid-match throw. API: `IsOver`, `CurrentActorIndex`, `CurrentState`, `ResolveTurn(FireAction)` (delegates to fire-only `TurnAction`), `ResolveTurn(TurnAction)`, `InventoryOf(int)`, `Result`. |
 | `MatchSimulator` | `sealed class` | Thin agent-driven loop over `MatchController`; uses `RoundRobinTurnOrderPolicy`. |
 
 ### AI
@@ -129,7 +131,7 @@ Server-authoritative player-held state and the pure seams that resolve a data-de
 | `ItemUseOutcome` | `readonly record struct` | `Success` + resulting `Inventory` (reduced on success, unchanged on failure). |
 | `ItemEffects` | `static class` | Pure resolution seams: `ResolveGrantedBall(BallCatalog, ItemEffect)` → `BallDefinition`; `ResolveRestoredHp(currentHp, maxHp, amount)` → clamped HP (no overheal). |
 
-**#3/#4 boundary:** #3 = item data + catalog + inventory + effect-resolution seams. #4 = equipment categories, the base+equip+rune+costume+buff modifier-stack that **assembles** effective `CombatantStats`, and wiring item/equip use into the live turn flow. Items here describe effects as **data**; they are not yet applied inside `MatchController`.
+**#3/#4 boundary:** #3 (complete) = item data + catalog + inventory + effect-resolution seams **+ item use wired into the live turn** (`MatchController.ResolveTurn(TurnAction)` applies `GrantBall`/`RestoreHp` via the pure `ItemEffects` seams; inventory is controller-side server-authoritative state and never leaks into the pure `DamageCalculator`). #4 = equipment categories and the base+equip+rune+costume+buff modifier-stack that **assembles** effective `CombatantStats`. Item effects beyond `GrantBall`/`RestoreHp` (stat/buff, equip) are #4. Bots stay fire-only (`IAgent.ChooseAction → FireAction` unchanged); bot item-use is a future knob.
 
 **Damage model (system #2, ADR-0005):** the formula *shape* is adopted from DDTank's `MakeDamage` (multiplicative guard/defence DR with caps, attack scaling with a floor, a forgiving distance falloff, an additive element layer + modern advantage multiplier, a crit multiplier). Divisors/curves live in `/content`, not C#. **Deliberately not replicated:** integer truncation of final damage, per-room formula-*shape* switching (a scalar `ModeMultiplier` is used instead; rooms #5 supply it), and client-trusted rolls (all crit/miss rolls are server-side seeded `SimRandom`). **Deferred:** separate magic layer, `ExtraDamage`/`CulturalAdd` buff multipliers, and pet sigmoid DR.
 
@@ -143,10 +145,11 @@ sim/
                   ShotResult, IProjectileSimulator, ProjectileSimulator
     Terrain/      ITerrainQuery, FlatTerrain
     Match/        CombatantStats, Combatant, CombatantEntry, Weapon, FireAction,
-                  MatchOptions, MatchState, DamageInputs, DamageResult, CombatRules,
-                  CombatantTurnResult, TurnEvent, MatchOutcome, MatchResult,
-                  IAgent, ITurnOrderPolicy, RoundRobinTurnOrderPolicy,
-                  IMatchSimulator, DamageCalculator, MatchController, MatchSimulator
+                  TurnAction, TurnItemUse, MatchOptions, MatchState, DamageInputs,
+                  DamageResult, CombatRules, CombatantTurnResult, TurnEvent,
+                  MatchOutcome, MatchResult, IAgent, ITurnOrderPolicy,
+                  RoundRobinTurnOrderPolicy, IMatchSimulator, DamageCalculator,
+                  MatchController, MatchSimulator
     Content/      ShellType, BallDefinition, BallCatalog, BallDataException,
                   Element, CombatTuning, ElementTable, CombatDataException,
                   ItemCategory, ItemEffectKind, ItemEffect, ItemDefinition,
@@ -162,6 +165,8 @@ sim/
                   TeamMatchSimulatorTests (11 — team-specific),
                   MatchControllerTests (6 — steppable driver),
                   MatchControllerCombatTests (5 — crit/miss/element/mode in-match),
+                  MatchControllerItemTests (12 — heal/grant-ball/reject/determinism
+                  + heal-before-self-blast + same-ball trajectory&damage),
                   ScriptedAgent (test-only IAgent helper)
     Content/      BallCatalogTests, BallsContentFileTests (validates shipped balls.json),
                   CombatTuningTests (incl. combat.json == CombatTuning.Default drift-lock),
@@ -169,7 +174,7 @@ sim/
                   ItemsContentFileTests (validates shipped items.json + ball refs)
     Items/        InventoryTests, ItemEffectsTests
     Ai/           BotAgentTests (8)
-  Sim.sln          (161 tests green)
+  Sim.sln          (173 tests green)
 ```
 
 ## What Belongs Here

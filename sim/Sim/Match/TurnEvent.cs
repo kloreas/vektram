@@ -25,6 +25,13 @@ public readonly record struct TurnEvent(
     Vec2D ImpactPoint,
     IReadOnlyList<CombatantTurnResult> CombatantResults)
 {
+    /// <summary>
+    /// The item use resolved this turn (before the shot), or <see langword="null"/> for a
+    /// fire-only turn. A rejected use is still logged here with
+    /// <see cref="TurnItemUse.Applied"/> = <see langword="false"/>.
+    /// </summary>
+    public TurnItemUse? ItemUse { get; init; } = null;
+
     // CombatantResults is IReadOnlyList<T> (a reference type), so the compiler-generated
     // Equals would use reference equality — wrong for determinism tests. Override with
     // element-wise comparison instead.
@@ -36,6 +43,9 @@ public readonly record struct TurnEvent(
             ActingCombatantIndex != other.ActingCombatantIndex ||
             !Action.Equals(other.Action)                       ||
             !ImpactPoint.Equals(other.ImpactPoint))
+            return false;
+
+        if (!Nullable.Equals(ItemUse, other.ItemUse))
             return false;
 
         if (CombatantResults.Count != other.CombatantResults.Count)
@@ -50,5 +60,5 @@ public readonly record struct TurnEvent(
 
     /// <inheritdoc/>
     public override int GetHashCode()
-        => HashCode.Combine(TurnNumber, ActingCombatantIndex, Action, ImpactPoint);
+        => HashCode.Combine(TurnNumber, ActingCombatantIndex, Action, ImpactPoint, ItemUse);
 }

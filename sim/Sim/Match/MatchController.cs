@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
+using Sim.Content;
 using Sim.Core;
+using Sim.Items;
 using Sim.Projectile;
 using Sim.Terrain;
 
@@ -28,6 +30,9 @@ public sealed class MatchController
 
     private readonly int[]            _teamIds;
     private readonly Combatant[]      _combatants;   // live; only Hp changes between turns
+    private readonly Inventory[]      _inventories;  // live; per-combatant, server-authoritative
+    private readonly ItemCatalog?     _itemCatalog;
+    private readonly BallCatalog?     _ballCatalog;
     private readonly List<int>        _living;
     private readonly ITurnOrderPolicy _policy;
     private readonly List<TurnEvent>  _log;
@@ -54,15 +59,31 @@ public sealed class MatchController
     /// Damage tuning, room/mode multiplier, and element table. When <see langword="null"/>,
     /// <see cref="CombatRules.Default"/> is used (engine fallback, no mode/element adjustment).
     /// </param>
+    /// <param name="inventories">
+    /// Starting per-combatant inventory, parallel to <paramref name="combatants"/>. When
+    /// <see langword="null"/>, every combatant starts with <see cref="Inventory.Empty"/>.
+    /// Mutated server-side as items are consumed; read back via <see cref="InventoryOf"/>.
+    /// </param>
+    /// <param name="itemCatalog">
+    /// Item definitions used to resolve a <see cref="TurnAction.ItemId"/>. When
+    /// <see langword="null"/>, any item use is rejected cleanly (the turn fires fire-only).
+    /// </param>
+    /// <param name="ballCatalog">
+    /// Shell definitions used to resolve a <see cref="ItemEffectKind.GrantBall"/> effect. When
+    /// <see langword="null"/>, a GrantBall use is rejected cleanly.
+    /// </param>
     public MatchController(
-        IProjectileSimulator     projectileSim,
-        IReadOnlyList<Combatant> combatants,
-        IReadOnlyList<int>       teamIds,
-        MatchOptions             options,
-        ITerrainQuery            terrain,
-        WorldEnvironment         environment,
-        uint                     seed,
-        CombatRules?             rules = null)
+        IProjectileSimulator      projectileSim,
+        IReadOnlyList<Combatant>  combatants,
+        IReadOnlyList<int>        teamIds,
+        MatchOptions              options,
+        ITerrainQuery             terrain,
+        WorldEnvironment          environment,
+        uint                      seed,
+        CombatRules?              rules = null,
+        IReadOnlyList<Inventory>? inventories = null,
+        ItemCatalog?              itemCatalog = null,
+        BallCatalog?              ballCatalog = null)
     {
         int n = combatants.Count;
 
@@ -73,12 +94,18 @@ public sealed class MatchController
         _seed          = seed;
         _rules         = rules ?? CombatRules.Default;
         _rng           = new SimRandom(seed);
+        _itemCatalog   = itemCatalog;
+        _ballCatalog   = ballCatalog;
 
         _teamIds = new int[n];
         for (int i = 0; i < n; i++) _teamIds[i] = teamIds[i];
 
         _combatants = new Combatant[n];
         for (int i = 0; i < n; i++) _combatants[i] = combatants[i];
+
+        _inventories = new Inventory[n];
+        for (int i = 0; i < n; i++)
+            _inventories[i] = inventories is not null ? inventories[i] : Inventory.Empty;
 
         _living = new List<int>(n);
         for (int i = 0; i < n; i++) _living.Add(i);
@@ -140,17 +167,43 @@ public sealed class MatchController
             : throw new InvalidOperationException(
                 "Match is not yet over; Result is only valid after IsOver is true.");
 
+    /// <summary>
+    /// The live inventory for a roster slot (server-authoritative). Reflects all item use
+    /// resolved so far.
+    /// </summary>
+    /// <param name="combatantIndex">Roster index, parallel to the combatants passed at construction.</param>
+    public Inventory InventoryOf(int combatantIndex) => _inventories[combatantIndex];
+
     // ── Mutation ──────────────────────────────────────────────────────────────
 
     /// <summary>
-    /// Applies <paramref name="action"/> for the current actor: simulates the projectile,
-    /// computes blast damage for all combatants, updates their HP, removes any newly-defeated
-    /// combatants from the turn order, and evaluates the win condition.
+    /// Resolves a fire-only turn for the current actor. Equivalent to
+    /// <see cref="ResolveTurn(TurnAction)"/> with no item.
     /// </summary>
     /// <param name="action">The shot the acting combatant fires this turn.</param>
     /// <returns>The full record of this turn.</returns>
     /// <exception cref="InvalidOperationException">Thrown when <see cref="IsOver"/> is already true.</exception>
-    public TurnEvent ResolveTurn(FireAction action)
+    public TurnEvent ResolveTurn(FireAction action) => ResolveTurn(new TurnAction(action, null));
+
+    /// <summary>
+    /// Applies <paramref name="action"/> for the current actor: optionally uses an item first
+    /// (heal or shell swap), simulates the projectile, computes blast damage for all
+    /// combatants, updates their HP, removes any newly-defeated combatants from the turn order,
+    /// and evaluates the win condition.
+    /// </summary>
+    /// <remarks>
+    /// An item, when present, is resolved and applied <em>before</em> the shot: a
+    /// <see cref="ItemEffectKind.RestoreHp"/> raises the actor's HP (so a same-turn
+    /// self-blast subtracts from the post-heal total), and a
+    /// <see cref="ItemEffectKind.GrantBall"/> swaps the shell so this turn's trajectory
+    /// <em>and</em> damage both come from the granted ball. An unavailable item is rejected
+    /// cleanly: no effect, inventory unchanged, the turn fires fire-only, and the rejection is
+    /// logged on <see cref="TurnEvent.ItemUse"/>.
+    /// </remarks>
+    /// <param name="action">The item (optional) and shot for this turn.</param>
+    /// <returns>The full record of this turn.</returns>
+    /// <exception cref="InvalidOperationException">Thrown when <see cref="IsOver"/> is already true.</exception>
+    public TurnEvent ResolveTurn(TurnAction action)
     {
         if (_isOver)
             throw new InvalidOperationException(
@@ -160,8 +213,20 @@ public sealed class MatchController
         int actorTeam = _teamIds[actorIdx];
         int n         = _combatants.Length;
 
-        var cmd        = new FireCommand(_combatants[actorIdx].Position, action.AngleDegrees, action.Speed, _seed);
-        var shot       = _projectileSim.Simulate(cmd, _environment, _terrain);
+        FireAction fire = action.Fire;
+
+        // Item use is resolved before the shot. The no-item path uses ShellPhysics.Neutral and
+        // the weapon's own damage/blast, so it is bit-identical to the pre-item simulator path.
+        ShellPhysics shotPhysics     = ShellPhysics.Neutral;
+        double       shotBaseDamage  = fire.Weapon.BaseDamage;
+        double       shotBlastRadius = fire.Weapon.BlastRadius;
+        TurnItemUse? itemUse         = null;
+
+        if (action.ItemId is not null)
+            itemUse = ApplyItem(action.ItemId, actorIdx, ref shotPhysics, ref shotBaseDamage, ref shotBlastRadius);
+
+        var cmd        = new FireCommand(_combatants[actorIdx].Position, fire.AngleDegrees, fire.Speed, _seed);
+        var shot       = _projectileSim.Simulate(cmd, _environment, _terrain, shotPhysics);
         var actorStats = _combatants[actorIdx].Stats;
         var results    = new CombatantTurnResult[n];
 
@@ -192,7 +257,7 @@ public sealed class MatchController
                 double advantage = _rules.ElementAdvantage(actorStats.Element, defenderStats.Element);
                 var inputs = new DamageInputs(
                     shot.ImpactPoint, _combatants[i].Position,
-                    action.Weapon.BaseDamage, action.Weapon.BlastRadius,
+                    shotBaseDamage, shotBlastRadius,
                     actorStats, defenderStats,
                     _rules.Tuning, _rules.ModeMultiplier, advantage,
                     isCrit, isMiss);
@@ -211,7 +276,10 @@ public sealed class MatchController
             };
         }
 
-        var turnEvent = new TurnEvent(_turnNumber, actorIdx, action, shot.ImpactPoint, results);
+        var turnEvent = new TurnEvent(_turnNumber, actorIdx, fire, shot.ImpactPoint, results)
+        {
+            ItemUse = itemUse,
+        };
         _log.Add(turnEvent);
 
         // Remove newly-defeated combatants from the turn-order pool.
@@ -248,6 +316,58 @@ public sealed class MatchController
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Resolves and applies one item for the actor, mutating inventory (and HP for a heal) and
+    /// reporting the outcome. On any rejection the inventory and HP are left unchanged and the
+    /// shot parameters (<paramref name="physics"/>/<paramref name="baseDamage"/>/<paramref name="blastRadius"/>)
+    /// are untouched, so the turn proceeds fire-only.
+    /// </summary>
+    private TurnItemUse ApplyItem(
+        string itemId, int actorIdx,
+        ref ShellPhysics physics, ref double baseDamage, ref double blastRadius)
+    {
+        // No catalog, or unknown id: nothing to resolve — reject (kind unknown).
+        if (_itemCatalog is null || !_itemCatalog.TryGet(itemId, out ItemDefinition def))
+            return new TurnItemUse(itemId, null, Applied: false, HpRestored: 0.0, GrantedBallId: null);
+
+        // Not held / insufficient: Consume reports failure and leaves the inventory unchanged.
+        ItemUseOutcome consumed = _inventories[actorIdx].Consume(itemId);
+        if (!consumed.Success)
+            return new TurnItemUse(itemId, def.Effect.Kind, Applied: false, HpRestored: 0.0, GrantedBallId: null);
+
+        switch (def.Effect.Kind)
+        {
+            case ItemEffectKind.RestoreHp:
+            {
+                double before = _combatants[actorIdx].Hp;
+                double after  = ItemEffects.ResolveRestoredHp(before, _combatants[actorIdx].Stats.MaxHp, def.Effect.Amount);
+
+                _inventories[actorIdx] = consumed.Inventory;
+                _combatants[actorIdx]  = _combatants[actorIdx] with { Hp = after };
+                return new TurnItemUse(itemId, ItemEffectKind.RestoreHp, Applied: true, after - before, GrantedBallId: null);
+            }
+
+            case ItemEffectKind.GrantBall:
+            {
+                // A dangling ball ref is a content error (the load-time guard is
+                // ItemCatalog.ValidateBallReferences); reject cleanly rather than throw mid-match.
+                if (_ballCatalog is null ||
+                    def.Effect.BallId is null ||
+                    !_ballCatalog.TryGet(def.Effect.BallId, out BallDefinition ball))
+                    return new TurnItemUse(itemId, ItemEffectKind.GrantBall, Applied: false, HpRestored: 0.0, GrantedBallId: null);
+
+                _inventories[actorIdx] = consumed.Inventory;
+                physics     = ball.Physics;
+                baseDamage  = ball.BaseDamage;
+                blastRadius = ball.BlastRadius;
+                return new TurnItemUse(itemId, ItemEffectKind.GrantBall, Applied: true, HpRestored: 0.0, ball.Id);
+            }
+
+            default:
+                return new TurnItemUse(itemId, def.Effect.Kind, Applied: false, HpRestored: 0.0, GrantedBallId: null);
+        }
+    }
 
     private void FinishMatch(MatchOutcome outcome, int? winningTeamId)
     {
