@@ -32,11 +32,13 @@ public static class ModeSetup
         new(mode.WinCondition, mode.MaxTurns, mode.TurnOrder);
 
     /// <summary>
-    /// Resolves a mode into the three engine primitives in one call. The host hands
-    /// <paramref name="tuning"/> and <paramref name="elements"/> (loaded from <c>/content</c>);
-    /// the mode supplies everything else.
+    /// Resolves a mode into the three engine primitives as one bound <see cref="ResolvedMode"/>.
+    /// The host hands <paramref name="tuning"/> and <paramref name="elements"/> (loaded from
+    /// <c>/content</c>); the mode supplies everything else. The result keeps the triple together so
+    /// a caller cannot mix primitives from different modes — and, being a positional record, it
+    /// still <c>Deconstruct</c>s into <c>(options, rules, modeRules)</c> for callers that destructure.
     /// </summary>
-    public static (MatchOptions Options, CombatRules Rules, MatchModeRules ModeRules) Resolve(
+    public static ResolvedMode Resolve(
         in ModeDefinition mode, CombatTuning tuning, ElementTable? elements) =>
-        (ToMatchOptions(mode), ToCombatRules(mode, tuning, elements), ToModeRules(mode));
+        new(ToMatchOptions(mode), ToCombatRules(mode, tuning, elements), ToModeRules(mode));
 }

@@ -303,6 +303,41 @@ public class MatchControllerItemTests
         Assert.Null(withItemsConfigured.ItemUse);
     }
 
+    // ── Item use flips the authoritative OUTCOME ──────────────────────────────────
+
+    [Fact]
+    public void ItemUse_FlipsAuthoritativeOutcome_VsFireOnlyControl()
+    {
+        // A 1-turn cap + a zero-damage weapon: fire-only cannot end the match (the lone enemy
+        // survives → MaxTurnsReached). Using the heavy shell first swaps in a lethal ball that
+        // one-shots the enemy → Team0Wins. The single item use flips the authoritative result.
+        var inertShot = new FireAction(90.0, 0.5, new Weapon(50.0, 0.0, 0.0));   // feet impact, deals nothing fire-only
+        var capOne    = new MatchModeRules(WinConditionDefinition.LastTeamStanding, 1, TurnOrderPolicyKind.RoundRobin);
+
+        MatchController Build(Inventory[]? inventories) => new(
+            ProjectileSim,
+            new[]
+            {
+                new Combatant(new Vec2D(0.0, 0.0), SurviveHp, CombatantStats.Default),
+                new Combatant(new Vec2D(1.0, 0.0), 50.0, CombatantStats.Default),    // dies to the heavy ball, survives a 0-damage shot
+            },
+            new[] { 0, 1 }, new MatchOptions(FriendlyFire: false, SelfDamage: false),
+            Ground, NoWind, Seed, rules: null, inventories: inventories,
+            itemCatalog: Items, ballCatalog: Balls, modeRules: capOne);
+
+        var withItem = Build(new[] { Inventory.Empty.Add(HeavyShellId, 1), Inventory.Empty });
+        var fireOnly = Build(null);
+
+        TurnEvent itemTurn = withItem.ResolveTurn(new TurnAction(inertShot, HeavyShellId));
+        fireOnly.ResolveTurn(new TurnAction(inertShot, null));
+
+        Assert.True(itemTurn.ItemUse!.Value.Applied);                            // the heavy shell resolved
+        Assert.Equal("heavy", itemTurn.ItemUse.Value.GrantedBallId);
+        Assert.Equal(MatchOutcome.Team0Wins, withItem.Result.Outcome);          // lethal granted ball ended it
+        Assert.Equal(MatchOutcome.MaxTurnsReached, fireOnly.Result.Outcome);    // a 0-damage shot could not
+        Assert.NotEqual(withItem.Result.Outcome, fireOnly.Result.Outcome);      // one item use flipped the outcome
+    }
+
     // ── Helpers ───────────────────────────────────────────────────────────────────
 
     private static List<TurnEvent> RunScriptedItemMatch()

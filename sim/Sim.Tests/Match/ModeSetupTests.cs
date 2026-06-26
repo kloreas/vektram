@@ -74,6 +74,27 @@ public class ModeSetupTests
     }
 
     [Fact]
+    public void Resolve_ReturnsBoundResolvedMode_CarryingTheConsistentTriple()
+    {
+        ModeDefinition mode = SampleMode();
+        ElementTable elements = ElementTable.Neutral;
+
+        ResolvedMode resolved = ModeSetup.Resolve(mode, CombatTuning.Default, elements);
+
+        // The bound value carries exactly the per-mapper primitives — the same mode in, so the
+        // three pieces are guaranteed consistent (they can no longer be sourced from other modes).
+        Assert.Equal(ModeSetup.ToMatchOptions(mode), resolved.Options);
+        Assert.Equal(ModeSetup.ToCombatRules(mode, CombatTuning.Default, elements), resolved.Rules);
+        Assert.Equal(ModeSetup.ToModeRules(mode), resolved.ModeRules);
+
+        // And it still destructures into the legacy (options, rules, modeRules) shape.
+        (MatchOptions options, CombatRules rules, MatchModeRules modeRules) = resolved;
+        Assert.Equal(resolved.Options, options);
+        Assert.Equal(resolved.Rules, rules);
+        Assert.Equal(resolved.ModeRules, modeRules);
+    }
+
+    [Fact]
     public void DefaultMode_ResolvesToEngineDefaults()
     {
         // The default mode must map exactly onto the engine's pre-#5 primitives so the null path

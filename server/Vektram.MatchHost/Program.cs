@@ -4,8 +4,10 @@ using System.IO;
 using Sim;
 using Sim.Content;
 using Sim.Core;
+using Sim.Items;
 using Sim.Match;
 using Sim.Projectile;
+using Sim.Stats;
 using Sim.Terrain;
 
 namespace Vektram.MatchHost;
@@ -46,6 +48,20 @@ internal static class Program
     // mode must NOT change the authoritative outcome — that is the whole point of #5's demo.
     private const string DefaultModeId = "elimination";
 
+    // ── Loadout + item demo (systems #4 + #3 made live in the product) ─────────────
+    // c0's effective stats come from LoadoutResolver over these real equipment.json pieces (the
+    // crit accessory is omitted so the shift stays RNG-free), and it consumes a real items.json
+    // shell mid-match through the live TurnAction path.
+    private const string LoadoutWeaponId      = "weapon_recruit_cannon";
+    private const string LoadoutArmorId       = "armor_recruit_plate";
+    private const string DemoItemId           = "shell_heavy";   // GrantBall → balls.json "heavy"
+    private const string DemoBallId           = "heavy";
+    private const double DemoAngle            = 45.0;
+    private const double DemoWeaponBaseDamage = 100.0;
+    private const double DemoBlastMargin      = 5.0;
+    private const double DemoEnemyHp          = 2000.0;
+    private const int    DemoItemStartCount   = 1;
+
     private static int Main(string[] args)
     {
         bool check = HasFlag(args, "--check");
@@ -57,27 +73,32 @@ internal static class Program
             Console.WriteLine($"Vektram Match Host — Sim v{SimVersion.Current}");
             Console.WriteLine(new string('-', 56));
 
-            (ModeCatalog modes, CombatTuning tuning, ElementTable elements) = LoadAndReportContent(contentRoot);
+            (ModeCatalog modes, CombatTuning tuning, ElementTable elements,
+             EquipmentCatalog equipment, ItemCatalog items, BallCatalog balls) = LoadAndReportContent(contentRoot);
 
             Console.WriteLine();
 
             // A mode is selected from data and resolved (by the pure /sim mapper) into the engine's
-            // existing primitives — options, combat rules, and scheduling/win rules.
+            // existing primitives — now bound together as one ResolvedMode so the triple cannot be
+            // mismatched. It still Deconstructs, so the anchor receives the identical values.
             ModeDefinition mode = modes.Get(DefaultModeId);
-            (MatchOptions options, CombatRules rules, MatchModeRules modeRules) =
-                ModeSetup.Resolve(mode, tuning, elements);
+            ResolvedMode resolved = ModeSetup.Resolve(mode, tuning, elements);
             Console.WriteLine($"Selected mode : {mode.Id} ({mode.WinCondition.Kind}, maxTurns {mode.MaxTurns})");
 
-            MatchResult result = RunLockedMatch(options, rules, modeRules);
+            // ── Anchor: bit-for-bit unchanged (CombatantStats.Default, no items, MatchSimulator) ──
+            MatchResult result = RunLockedMatch(resolved.Options, resolved.Rules, resolved.ModeRules);
             PrintResult(result);
 
-            bool ok = result.Outcome == ExpectedOutcome && result.WinningTeamId == ExpectedWinningTeam;
+            bool anchorOk = result.Outcome == ExpectedOutcome && result.WinningTeamId == ExpectedWinningTeam;
             Console.WriteLine();
             Console.WriteLine($"Expected (suite-locked): {ExpectedOutcome} / team {ExpectedWinningTeam}");
-            Console.WriteLine($"Verification: {(ok ? "PASS" : "FAIL")}");
+            Console.WriteLine($"Verification: {(anchorOk ? "PASS" : "FAIL")}");
+
+            // ── Demo: systems #4 (loadout→stats) + #3 (item consumed) live in a host-run match ──
+            bool demoOk = RunLoadoutItemDemo(resolved, equipment, items, balls);
 
             if (check)
-                return ok ? 0 : 1;
+                return (anchorOk && demoOk) ? 0 : 1;
 
             return 0;
         }
@@ -90,7 +111,8 @@ internal static class Program
 
     // ── Content loading (host does I/O; sim parses the supplied text) ──────────────
 
-    private static (ModeCatalog Modes, CombatTuning Tuning, ElementTable Elements) LoadAndReportContent(string contentRoot)
+    private static (ModeCatalog Modes, CombatTuning Tuning, ElementTable Elements,
+                    EquipmentCatalog Equipment, ItemCatalog Items, BallCatalog Balls) LoadAndReportContent(string contentRoot)
     {
         string dataDir = Path.Combine(contentRoot, "data");
         string Read(string fileName) => File.ReadAllText(Path.Combine(dataDir, fileName));
@@ -113,7 +135,7 @@ internal static class Program
         Console.WriteLine($"  elements.json  → table parsed (Fire vs Water advantage {elements.Advantage(Element.Fire, Element.Water).ToString(CultureInfo.InvariantCulture)})");
         Console.WriteLine($"  modes.json     → {modes.Count} modes parsed ({string.Join(", ", modes.Ids)})");
 
-        return (modes, tuning, elements);
+        return (modes, tuning, elements, equipment, items, balls);
     }
 
     // ── Authoritative match (the sim is the source of truth) ───────────────────────
@@ -137,6 +159,98 @@ internal static class Program
         // (mode multiplier 1.0, last-team-standing) — so the authoritative outcome is unchanged.
         return sim.Run(entries, options, FlatTerrain.Ground, WorldEnvironment.Default, Seed, rules, modeRules);
     }
+
+    // ── Loadout + item demo: #4 and #3 made live in a host-run match (Option B) ─────
+    // Drives MatchController.ResolveTurn(TurnAction) directly (the server-authoritative path), so
+    // an item is genuinely consumed and a loadout-resolved combatant fights under the real mode
+    // config. Returns true only if every "live" invariant holds — printed, not merely asserted.
+    private static bool RunLoadoutItemDemo(ResolvedMode resolved, EquipmentCatalog equipment, ItemCatalog items, BallCatalog balls)
+    {
+        IProjectileSimulator projectileSim = new ProjectileSimulator();
+
+        // #4 LIVE: a real Loadout (base + equipped ids) → LoadoutResolver.Resolve → effective stats.
+        var loadout = new Loadout(CombatantStats.Default, new[] { LoadoutWeaponId, LoadoutArmorId }, null, null);
+        CombatantStats resolvedStats = LoadoutResolver.Resolve(loadout, equipment);
+
+        // Geometry under the real mode (elimination has SelfDamage ON): the granted heavy shell
+        // flies under heavier gravity and lands SHORT of the neutral shot. Put the enemy at the
+        // heavy ball's impact (a direct hit for the treatment), and size the blast so the Default
+        // control's neutral shot still clips it — both impacts stay clear of the shooter at x=0.
+        BallDefinition heavy = balls.Get(DemoBallId);
+        var launch = new FireCommand(new Vec2D(0.0, 0.0), DemoAngle, ShotSpeed, Seed);
+        Vec2D neutralImpact = projectileSim.Simulate(launch, WorldEnvironment.Default, FlatTerrain.Ground, ShellPhysics.Neutral).ImpactPoint;
+        Vec2D heavyImpact   = projectileSim.Simulate(launch, WorldEnvironment.Default, FlatTerrain.Ground, heavy.Physics).ImpactPoint;
+
+        double targetX     = heavyImpact.X;
+        double blastRadius = Math.Abs(neutralImpact.X - heavyImpact.X) + DemoBlastMargin;
+        var    demoWeapon  = new Weapon(ShotSpeed, DemoWeaponBaseDamage, blastRadius);
+        var    demoShot    = new FireAction(DemoAngle, ShotSpeed, demoWeapon);
+
+        // Treatment: equipped c0 uses the heavy shell on its first turn, then fires.
+        var treatmentInv  = new[] { Inventory.Empty.Add(DemoItemId, DemoItemStartCount), Inventory.Empty };
+        var treatmentCtrl = BuildDemoController(projectileSim, resolvedStats, targetX, treatmentInv, items, balls, resolved);
+        TurnItemUse? firstItemUse = null;
+        bool usedItem = false;
+        while (!treatmentCtrl.IsOver)
+        {
+            int actor    = treatmentCtrl.CurrentActorIndex;
+            bool useNow   = actor == 0 && !usedItem;
+            TurnEvent ev = treatmentCtrl.ResolveTurn(
+                new TurnAction(actor == 0 ? demoShot : NoopShot, useNow ? DemoItemId : null));
+            if (useNow) { firstItemUse = ev.ItemUse; usedItem = true; }
+        }
+        MatchResult treatment = treatmentCtrl.Result;
+        int remaining = treatmentCtrl.InventoryOf(0).CountOf(DemoItemId);
+
+        // Control: Default-stats c0, no item, identical geometry.
+        var controlCtrl = BuildDemoController(projectileSim, CombatantStats.Default, targetX, null, items, balls, resolved);
+        while (!controlCtrl.IsOver)
+            controlCtrl.ResolveTurn(new TurnAction(controlCtrl.CurrentActorIndex == 0 ? demoShot : NoopShot, null));
+        MatchResult control = controlCtrl.Result;
+
+        // Concrete, observable invariants — these are what "live" means.
+        bool statProduced   = resolvedStats.Attack > CombatantStats.Default.Attack;
+        bool itemConsumed   = remaining == DemoItemStartCount - 1;
+        bool itemApplied    = firstItemUse is { Applied: true };
+        bool outcomeDiffers = treatment.Outcome != control.Outcome
+                           || treatment.WinningTeamId != control.WinningTeamId
+                           || treatment.TurnCount != control.TurnCount;
+        bool demoOk = statProduced && itemConsumed && itemApplied && outcomeDiffers;
+
+        Console.WriteLine();
+        Console.WriteLine("Loadout + item demo (systems #4 + #3, live):");
+        Console.WriteLine($"  Loadout  : [{LoadoutWeaponId}, {LoadoutArmorId}] → " +
+            $"Attack {Fmt(resolvedStats.Attack)} (default {Fmt(CombatantStats.Default.Attack)}), MaxHp {Fmt(resolvedStats.MaxHp)}");
+        Console.WriteLine($"  Item     : {DemoItemId} → grants ball '{(firstItemUse?.GrantedBallId ?? "—")}', " +
+            $"count {DemoItemStartCount} → {remaining}");
+        Console.WriteLine($"  Control  (default stats, no item) : {FmtResult(control)}");
+        Console.WriteLine($"  Treatment (loadout + heavy shell) : {FmtResult(treatment)}");
+        Console.WriteLine($"  Checks   : stat-produced={Pf(statProduced)} consumed={Pf(itemConsumed)} " +
+            $"applied={Pf(itemApplied)} outcome-differs={Pf(outcomeDiffers)}");
+        Console.WriteLine($"Loadout+Item demo: {(demoOk ? "PASS" : "FAIL")}");
+
+        return demoOk;
+    }
+
+    private static MatchController BuildDemoController(
+        IProjectileSimulator projectileSim, CombatantStats c0Stats, double targetX,
+        Inventory[]? inventories, ItemCatalog items, BallCatalog balls, ResolvedMode resolved)
+    {
+        var combatants = new[]
+        {
+            new Combatant(new Vec2D(0.0, 0.0), StartHp, c0Stats),
+            new Combatant(new Vec2D(targetX, 0.0), DemoEnemyHp, CombatantStats.Default),
+        };
+        return new MatchController(
+            projectileSim, combatants, new[] { 0, 1 }, resolved.Options,
+            FlatTerrain.Ground, WorldEnvironment.Default, Seed,
+            resolved.Rules, inventories, items, balls, resolved.ModeRules);
+    }
+
+    private static string FmtResult(MatchResult r) =>
+        $"{r.Outcome} / team {(r.WinningTeamId.HasValue ? r.WinningTeamId.Value.ToString(CultureInfo.InvariantCulture) : "—")} / turns {r.TurnCount}";
+
+    private static string Pf(bool ok) => ok ? "PASS" : "FAIL";
 
     private static void PrintResult(MatchResult result)
     {

@@ -143,6 +143,49 @@ public class MatchControllerModeTests
         Assert.Equal(ctrl1.Result.TurnCount,     ctrl2.Result.TurnCount);
     }
 
+    // ── TotalDamageDealt tiebreak flows through the controller's own tally ─────
+
+    [Fact]
+    public void TurnLimitTiebreak_TotalDamageDealt_DrivenByControllerTally_PicksHigherDamageTeam()
+    {
+        // Identical 2v2 reaching the cap with everyone alive. team0 deals MORE damage to enemies
+        // but keeps FAR LESS remaining HP, so the two tiebreak metrics DISAGREE. Switching only the
+        // metric flips the winner — proving the TotalDamageDealt outcome is driven by the
+        // controller's own _damageDealtByTeam accumulation (a bug crediting the wrong team, or
+        // summing self/ally damage, would fail this), not by HP and not by a synthetic TeamStanding.
+        MatchResult byDamage = RunDamageTiebreakScenario(TiebreakMetric.TotalDamageDealt);
+        MatchResult byHp     = RunDamageTiebreakScenario(TiebreakMetric.TotalHpRemaining);
+
+        Assert.Equal(4, byDamage.TurnCount);
+        Assert.Equal(MatchOutcome.Team0Wins, byDamage.Outcome);   // team 0 dealt the most damage
+        Assert.Equal(0, byDamage.WinningTeamId);
+
+        Assert.Equal(MatchOutcome.Team1Wins, byHp.Outcome);       // team 1 kept the most HP
+        Assert.Equal(1, byHp.WinningTeamId);
+    }
+
+    private static MatchResult RunDamageTiebreakScenario(TiebreakMetric metric)
+    {
+        // c0 (team0) is a strong chipper; c1 (team1) is a weak chipper with a huge HP pool. Both
+        // feet-shots splash the adjacent enemy; self/friendly fire is off so the only cross-team
+        // damage is c0→c1 (large) and c1→c0 (small). Nobody dies before the 4-turn cap.
+        var strongChip = new FireAction(90.0, 0.5, new Weapon(ShotSpeed, 100.0, 10.0));
+        var weakChip   = new FireAction(90.0, 0.5, new Weapon(ShotSpeed,  20.0, 10.0));
+        var combatants = new[] { C(0.0, 100.0), C(1.0, 100_000.0), C(500.0, 100.0), C(501.0, 100_000.0) };
+        var teamIds    = new[] { 0, 1, 0, 1 };
+        var modeRules  = new MatchModeRules(
+            new WinConditionDefinition(WinConditionKind.TurnLimitTiebreak, metric), 4, TurnOrderPolicyKind.RoundRobin);
+
+        var ctrl = new MatchController(
+            ProjectileSim, combatants, teamIds, new MatchOptions(FriendlyFire: false, SelfDamage: false),
+            FlatGround, NoWind, TestSeed, modeRules: modeRules);
+
+        FireAction ActionFor(int idx) => idx == 0 ? strongChip : idx == 1 ? weakChip : NoopShot;
+        while (!ctrl.IsOver)
+            ctrl.ResolveTurn(ActionFor(ctrl.CurrentActorIndex));
+        return ctrl.Result;
+    }
+
     // ── A mode's MaxTurns drives the cap ──────────────────────────────────────
 
     [Fact]

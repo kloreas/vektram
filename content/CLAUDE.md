@@ -46,7 +46,9 @@ Current files:
   `balls.json` id) and `RestoreHp` (flat amount). Item use is server-authoritative; the client
   only displays. `ItemCatalog.ValidateBallReferences(BallCatalog)` fail-fast checks `GrantBall`
   ids against `balls.json`. No `CombatTuning.Default`-style C# mirror, so no drift-lock test;
-  a shipped-file test instead confirms it loads and its ball refs resolve. **Deferred (heal
+  a shipped-file test instead confirms it loads and its ball refs resolve. **Consumed live:**
+  the `shell_heavy` row is genuinely used mid-match by the `server/Vektram.MatchHost` loadout+item
+  demo (`MatchController.ResolveTurn(TurnAction)`), not just parsed. **Deferred (heal
   strengthen-scaling); equipment moved to its own file below.**
 - `data/equipment.json` (+ `schema/equipment.schema.json`) — equipment pieces and the stat
   modifiers they grant (loaded by `Sim.Content.EquipmentCatalog.FromJson`). System #4 scope:
@@ -57,6 +59,10 @@ Current files:
   match **setup** by `Sim.Stats.LoadoutResolver`, never in the turn loop. Values are **first-pass
   tuning, calibrated to `combat.json` divisors** so effects read as small percentages
   (anti-inflation, ADR-0006); a shipped-file test confirms it loads with valid stats/ops.
+  **Consumed live:** the `weapon_recruit_cannon` + `armor_recruit_plate` rows are resolved through
+  `LoadoutResolver` into a combatant's effective `CombatantStats` by the `server/Vektram.MatchHost`
+  loadout+item demo — the modifier stack is now exercised in the product, not only in tests (the
+  small per-piece deltas read as the intended anti-inflation percentages in that match).
   **Deferred:** base profile from class/level (#6), equipment-as-inventory (#7), rune trees,
   costumes (cosmetics never grant power), set bonuses, gear score.
 - `data/modes.json` (+ `schema/modes.schema.json`) — game **modes** (the ruleset a match runs

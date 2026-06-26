@@ -83,7 +83,8 @@ dotnet test sim/Sim.sln
 | `WinEvaluationContext` | `readonly record struct` | Post-turn match-progress snapshot: `TurnNumber`, `MaxTurns`, per-team `Standings`. **Extension boundary:** a condition needing new state (hold-a-zone) adds a field here + one evaluator case; conditions reading existing progress (survive-N, defeat-boss) need no change. |
 | `WinEvaluation` | `readonly record struct` | Evaluator result: `IsFinished` + `Outcome` + `WinningTeamId`. `Continue` / `Finished(...)` factories. |
 | `WinConditionEvaluator` | `static class` | **Pure** `Evaluate(in WinConditionDefinition, in WinEvaluationContext) → WinEvaluation`. The ONLY switch keyed by condition KIND (never mode id), so many modes reuse a few cases. `LastTeamStanding` (= pre-#5 logic, bit-for-bit) + `TurnLimitTiebreak` (argmax over alive teams; tie → Draw). No RNG/IO. `OutcomeForWinner` preserves the `0→Team0Wins/else→Team1Wins` carry-forward verbatim (deliberate; FFA rename deferred). |
-| `ModeSetup` | `static class` | **Pure** mapper splitting a `ModeDefinition` into the engine's primitives: `ToMatchOptions` / `ToCombatRules` (folds `ModeMultiplier`) / `ToModeRules`, plus `Resolve(...)` → all three. Lives in `/sim` so server and client derive identical config. |
+| `ModeSetup` | `static class` | **Pure** mapper splitting a `ModeDefinition` into the engine's primitives: `ToMatchOptions` / `ToCombatRules` (folds `ModeMultiplier`) / `ToModeRules`, plus `Resolve(...)` → a bound `ResolvedMode`. Lives in `/sim` so server and client derive identical config. |
+| `ResolvedMode` | `readonly record struct` | The three engine primitives a single mode resolves to — `Options` / `Rules` / `ModeRules` — **bound as one value** so a caller can't pair one mode's options with another's mode-rules (the audit's "no invariant binding the three structs" defect, fixed at the one production site, `ModeSetup.Resolve`). A *positional* record, so it still `Deconstruct`s into `(options, rules, modeRules)` and pre-existing destructuring call sites compiled unchanged. **Next slice (committed):** collapse `MatchController`'s three mode params into this one (12→10 ctor params) as a dedicated behavior-preserving refactor. |
 | `IAgent` | interface | `ChooseAction(MatchState)` — implemented by human adapters and AI bots |
 | `ITurnOrderPolicy` | interface | `NextActor(livingIndices)` — seam for swappable turn scheduling |
 | `RoundRobinTurnOrderPolicy` | `sealed class` | Default policy: teams alternate, living members cycle within each team in roster order |
@@ -165,7 +166,11 @@ Server-authoritative player-held state and the pure seams that resolve a data-de
 | `ItemUseOutcome` | `readonly record struct` | `Success` + resulting `Inventory` (reduced on success, unchanged on failure). |
 | `ItemEffects` | `static class` | Pure resolution seams: `ResolveGrantedBall(BallCatalog, ItemEffect)` → `BallDefinition`; `ResolveRestoredHp(currentHp, maxHp, amount)` → clamped HP (no overheal). |
 
-**#3/#4 boundary:** #3 (complete) = item data + catalog + inventory + effect-resolution seams **+ item use wired into the live turn** (`MatchController.ResolveTurn(TurnAction)` applies `GrantBall`/`RestoreHp` via the pure `ItemEffects` seams; inventory is controller-side server-authoritative state and never leaks into the pure `DamageCalculator`). **#4 (done)** = the `Sim.Stats` modifier stack + `EquipmentCatalog`/`equipment.json` + `Loadout`/`LoadoutResolver` that **assemble** effective `CombatantStats` at match setup. `CombatantStats` shape was **unchanged** (zero new fields) so the formula/controller/simulator are untouched and the prior 173 stayed green. **Deferred from #4** (each re-attaches at a named seam): base profile from class/level → progression #6 (`Loadout.BaseStats`); equipment-as-ownable-inventory → economy #7 (`ItemCategory.Equipment`); full rune trees → next slice (`Loadout.Runes` + a future `RuneCatalog`); set bonuses → post-gather source in `LoadoutResolver`; gear score → pure read over resolved modifiers (display only); element-granting weapons + mid-match buff re-assembly → noted seams. Bots stay fire-only; bot item-use/loadouts are a future knob.
+**#3/#4 boundary:** #3 (complete) = item data + catalog + inventory + effect-resolution seams **+ item use wired into the live turn** (`MatchController.ResolveTurn(TurnAction)` applies `GrantBall`/`RestoreHp` via the pure `ItemEffects` seams; inventory is controller-side server-authoritative state and never leaks into the pure `DamageCalculator`). **#4 (done)** = the `Sim.Stats` modifier stack + `EquipmentCatalog`/`equipment.json` + `Loadout`/`LoadoutResolver` that **assemble** effective `CombatantStats` at match setup. `CombatantStats` shape was **unchanged** (zero new fields) so the formula/controller/simulator are untouched and the prior 173 stayed green.
+
+**#3/#4 are now LIVE in the product (not just in tests).** `server/Vektram.MatchHost` runs a second, additive "loadout + item demo" alongside the bit-for-bit anchor: it builds a `Loadout` from real `equipment.json` ids → `LoadoutResolver.Resolve` → effective `CombatantStats` into the roster (#4), then drives `MatchController.ResolveTurn(TurnAction)` **directly** (Option B — the server-authoritative path; `MatchSimulator`/`IAgent` unchanged) so a real `shell_heavy` is consumed mid-match (#3). The host prints + self-checks four observable invariants (resolved `Attack` > default, item count decremented, `ItemUse.Applied`, equipped+item result ≠ Default control) as a second `Loadout+Item demo: PASS`; `--check` returns 0 only if **both** the anchor and the demo pass. The loadout effect is intentionally *small* (anti-inflation, ADR-0006): equipped+item wins faster than the control, it does not one-shot. **Deferred from #4** (each re-attaches at a named seam): base profile from class/level → progression #6 (`Loadout.BaseStats`); equipment-as-ownable-inventory → economy #7 (`ItemCategory.Equipment`); full rune trees → next slice (`Loadout.Runes` + a future `RuneCatalog`); set bonuses → post-gather source in `LoadoutResolver`; gear score → pure read over resolved modifiers (display only); element-granting weapons + mid-match buff re-assembly → noted seams. Bots stay fire-only; bot item-use/loadouts are a future knob.
+
+**Committed next slices (do not silently drop):** (1) **God-object ctor-shrink** — collapse `MatchController`'s three independently-passed mode params (`options`/`rules`/`modeRules`) into one `ResolvedMode` (12→10), with the matching `MatchSimulator`/`IMatchSimulator` change, as a dedicated behavior-preserving refactor (this slice introduced `ResolvedMode` and bound the triple at the production site only — zero ctor-param change here). (2) **The wire round-trip** — the `/proto` schema + the `Sim.dll`-sync fix + a real over-the-wire authoritative round-trip is the next *priority* slice.
 
 **#5 boundary (room/mode config, done):** modes are **data** (`modes.json` → `ModeCatalog`/`ModeDefinition`), per ADR-0006 Decision 1. A "room" is the future `/server` lobby that *selects* a mode by id; the ruleset **is** the mode. The pure `ModeSetup` mapper splits a `ModeDefinition` into the engine's existing provenance-free primitives (`MatchOptions` / `CombatRules` / new `MatchModeRules`), so the engine never special-cases a mode. The **win condition is data**: `WinConditionDefinition` (discriminated-union-as-data) is evaluated each turn by the pure `WinConditionEvaluator`, whose **only switch is keyed by condition KIND, never by mode id** — so many modes reuse a few evaluators (`LastTeamStanding` + `TurnLimitTiebreak` shipped). `MatchController` gained one optional `MatchModeRules? modeRules` param; null ⇒ `Default`, reproducing the pre-#5 last-team-standing / 200-cap / round-robin path **bit-for-bit** (the standings tally is pure summation, so no RNG is drawn — the prior 213 stayed green). `MatchOutcome`/`MatchResult` were **unchanged** (the `0→Team0Wins/else→Team1Wins` map is a deliberate carry-forward). **Deferred** (each re-attaches at a named seam): per-mode item/equipment availability + per-type stat scaling/floors → progression #6; economy rewards per room → #7; mode-specific maps/terrain + dynamic per-turn environment → ADR-0006 Decision 2; matchmaking/lobbies → `/server`; the FFA `MatchOutcome` rename → first FFA mode (`WinningTeamId` already carries it); a second turn-order policy → ADR-0004 agility seam (`TurnOrderPolicyKind`); further win conditions (hold-a-zone, survive-N-turns, defeat-a-boss-target) → a new `WinConditionKind` + one evaluator case (hold-a-zone also adds a field to `WinEvaluationContext`; defeat-a-boss is already expressible as last-team-standing with the boss as its own team id).
 
@@ -187,7 +192,7 @@ sim/
                   RoundRobinTurnOrderPolicy, IMatchSimulator, DamageCalculator,
                   MatchController, MatchSimulator,
                   MatchModeRules, TeamStanding, WinEvaluationContext,
-                  WinEvaluation, WinConditionEvaluator, ModeSetup
+                  WinEvaluation, WinConditionEvaluator, ModeSetup, ResolvedMode
     Content/      ShellType, BallDefinition, BallCatalog, BallDataException,
                   Element, CombatTuning, ElementTable, CombatDataException,
                   ItemCategory, ItemEffectKind, ItemEffect, ItemDefinition,
@@ -208,12 +213,16 @@ sim/
                   TeamMatchSimulatorTests (11 — team-specific),
                   MatchControllerTests (6 — steppable driver),
                   MatchControllerCombatTests (5 — crit/miss/element/mode in-match),
-                  MatchControllerItemTests (12 — heal/grant-ball/reject/determinism
-                  + heal-before-self-blast + same-ball trajectory&damage),
+                  MatchControllerItemTests (13 — heal/grant-ball/reject/determinism
+                  + heal-before-self-blast + same-ball trajectory&damage
+                  + item-use flips authoritative outcome vs fire-only control),
+                  LoadoutMatchSetupTests (4 — shipped-equipment loadout → resolved stats,
+                  determinism, resolved-stat match alters outcome vs Default, identical-log),
                   WinConditionEvaluatorTests (11 — both conditions + boss-as-team case),
-                  ModeSetupTests (5 — mode → engine primitives),
-                  MatchControllerModeTests (8 — null==explicit-default bit-for-bit,
-                  tiebreak at cap, mode MaxTurns, boss-as-team, determinism, sim forwarding),
+                  ModeSetupTests (6 — mode → engine primitives + bound ResolvedMode),
+                  MatchControllerModeTests (9 — null==explicit-default bit-for-bit,
+                  tiebreak at cap, TotalDamageDealt tiebreak via the controller's own tally,
+                  mode MaxTurns, boss-as-team, determinism, sim forwarding),
                   ScriptedAgent (test-only IAgent helper)
     Content/      BallCatalogTests, BallsContentFileTests (validates shipped balls.json),
                   CombatTuningTests (incl. combat.json == CombatTuning.Default drift-lock),
@@ -229,7 +238,7 @@ sim/
                   LoadoutResolverTests (9 — assembly seam, cosmetic-zero-power,
                   unknown-id throw, feeds DamageCalculator)
     Ai/           BotAgentTests (8)
-  Sim.sln          (258 tests green)
+  Sim.sln          (265 tests green)
 ```
 
 ## What Belongs Here
